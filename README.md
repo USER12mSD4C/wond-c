@@ -1,7 +1,11 @@
 # UTMS Compiler
 
+**Copyright (c) 2026 The UOPL Authors**
+
 Low-level compiler that translates custom UTMS syntax into NASM assembly.
 Targets: raw binary, ELF, UEFI.
+
+reddit: r/utms_compiler
 
 ## ⚠️ Project status
 
