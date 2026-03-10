@@ -7,12 +7,7 @@ Targets: raw binary, ELF, UEFI.
 
 **Under active development. Not stable yet.**
 
-The compiler currently:
-- produces working assembly for basic cases
-- may crash on invalid syntax
-- has limited error reporting
-- lacks optimization
-- not recommended for production use
+currently even basic functional dont want to work, so i dont recommend using it
 
 ## Features (work in progress)
 
@@ -21,11 +16,10 @@ The compiler currently:
 - global variables
 - functions with parameters and return values
 - `if` / `else` / `while` / `for`
-- inline NASM assembly (`::nasm::{}`)
+- inline NASM and C (`::C::{}` ; `::nasm::{}`)
 - memory management: `mloc`, `bmloc`, `mfree`, `e820f`
-- I/O ports: `inb` / `outb` etc.
-- `jmpto` for module calls
-- `printf` / `input` in OS mode
+- I/O ports: `inb` / `outb`
+- `jmpto` for modules/extensions call
 
 ## Building
 
@@ -61,7 +55,6 @@ sc.true
 fn main() {
     u64 locate buf = mloc(16);
     
-    // заполняем тестовыми данными: 1,2,3,4
     ::nasm::{
         mov rax, [buf]
         mov byte [rax],   1
