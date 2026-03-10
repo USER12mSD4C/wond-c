@@ -16,7 +16,7 @@ The compiler currently:
 
 ## Features (work in progress)
 
-- bare metal mode (`sc.false`) and OS mode (`sc.true`)
+- bare metal mode (`sc.false`) and in-OS mode (`sc.true`)
 - sections (`sect.name`)
 - global variables
 - functions with parameters and return values
@@ -35,4 +35,10 @@ make
 #install command "utmc"
 sudo make install
 ```
+
+## Usage
+
+```
+utmc {filename.utms} {output_binary_name}
+
 
