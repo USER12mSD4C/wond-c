@@ -79,10 +79,13 @@ typedef enum {
     TOK_NOT,
     
     TOK_STRUCT,
+    TOK_ENUM,
     TOK_VERSION,
     TOK_REFLECT,
     TOK_LBRACKET,
-    TOK_RBRACKET
+    TOK_RBRACKET,
+    TOK_EXPORT,
+    TOK_MODULE
 } TokenType;
 
 typedef struct {

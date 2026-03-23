@@ -8,8 +8,9 @@
 #include "ast.h"
 #include "codegen/ir.h"
 #include "codegen/ir_gen.h"
+#include "codegen/optimizer.h"
 #include "codegen/regalloc_linear.h"
-#include "codegen/target.h"
+#include "codegen/asm_gen.h"
 #include "preproc.h"
 #include "platform.h"
 
@@ -23,8 +24,9 @@ static PathList inc_paths;
 static int target_raw = 0;
 static int target_uefi = 0;
 static char* out_fmt = "elf";
-static int opt_level = 0;
+static int opt_level = 2;
 static int alloc_type = 0;
+static int bits = 64;
 int verbose = 0;
 
 static void add_path(PathList* list, const char* path) {
@@ -50,8 +52,6 @@ static void init_paths(void) {
 }
 
 static int compile_one(const char* input, const char* output) {
-    (void)output;
-    
     char* src = platform_read_file(input);
     if (!src) {
         platform_eprintf("cannot read: %s\n", input);
@@ -86,37 +86,49 @@ static int compile_one(const char* input, const char* output) {
         return 1;
     }
     
-    // Используем JSON таргет
-    target_json.init();
+    // Оптимизация
+    optimize_ir(ir, opt_level);
     
-    IRIns* ins = ir->head;
-    while (ins) {
-        target_json.gen_ins(ins, NULL, NULL);
-        ins = ins->next;
-    }
+    // Регистровая аллокация
+    LinearRegAlloc* ra = linear_allocator_new(16);
+    linear_allocate(ra, ir);
     
-    target_json.finish(NULL);
+    // Генерация ассемблера
+    char asmfile[512];
+    snprintf(asmfile, sizeof(asmfile), "%s.asm", output);
     
-    // НЕ освобождаем ir, так как в нём есть данные, которые могут быть использованы
-    // или освобождаются дважды. Просто забываем о нём.
+    AsmContext asm_ctx;
+    asm_gen_init(&asm_ctx, asmfile, bits, parser.safe_code, opt_level);
+    asm_gen_program(&asm_ctx, ir, ra);
+    asm_gen_finish(&asm_ctx);
     
+    // Сборка
+    int ret = platform_assemble(asmfile, output, out_fmt, target_raw);
+    platform_remove(asmfile);
+    
+    linear_allocator_free(ra);
+    ir_program_free(ir);
     platform_free(src);
     preproc_free(pp);
     ast_free(ast);
     
-    platform_printf("Generated output.json\n");
-    return 0;
+    if (ret == 0) {
+        platform_printf("Compiled %s -> %s\n", input, output);
+    }
+    
+    return ret;
 }
 
 static void usage(const char* prog) {
     platform_eprintf("WandC v%s\n", WANDC_VERSION);
     platform_eprintf("Usage: %s [opts] <input> <output>\n", prog);
     platform_eprintf("  --target=raw|elf|uefi\n");
-    platform_eprintf("  -I<path>        add include path\n");
-    platform_eprintf("  -O<0-2>         optimization level\n");
+    platform_eprintf("  --bits=16|32|64    set target bits (default: 64)\n");
+    platform_eprintf("  -I<path>           add include path\n");
+    platform_eprintf("  -O<0-2>            optimization level (default: 2)\n");
     platform_eprintf("  --alloc=linear|graph  register allocator\n");
-    platform_eprintf("  -v              verbose\n");
-    platform_eprintf("  -h              help\n");
+    platform_eprintf("  -v                 verbose\n");
+    platform_eprintf("  -h                 help\n");
 }
 
 int main(int argc, char** argv) {
@@ -138,6 +150,9 @@ int main(int argc, char** argv) {
                 out_fmt = argv[i] + 9;
                 target_raw = (strcmp(out_fmt, "raw") == 0);
                 target_uefi = (strcmp(out_fmt, "uefi") == 0);
+            } else if (strncmp(argv[i], "--bits=", 7) == 0) {
+                bits = atoi(argv[i] + 7);
+                if (bits != 16 && bits != 32 && bits != 64) bits = 64;
             } else if (strncmp(argv[i], "-I", 2) == 0) {
                 add_path(&inc_paths, argv[i] + 2);
             } else if (strncmp(argv[i], "-O", 2) == 0) {

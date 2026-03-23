@@ -6,7 +6,7 @@
 typedef enum {
     TYPE_U8, TYPE_U16, TYPE_U32, TYPE_U64,
     TYPE_I8, TYPE_I16, TYPE_I32, TYPE_I64,
-    TYPE_STRING,
+    TYPE_STRING, TYPE_PTR,
     TYPE_VOID
 } VarType;
 
@@ -46,7 +46,7 @@ typedef enum {
     NODE_INB,
     NODE_OUTB,
     NODE_STRUCT,
-    NODE_REFLECT
+    NODE_ENUM
 } NodeType;
 
 typedef struct FieldInfo {
@@ -55,7 +55,16 @@ typedef struct FieldInfo {
     int version_added;
     int version_removed;
     int offset;
+    int is_pointer;
+    int array_size;
 } FieldInfo;
+
+typedef struct EnumValue {
+    char* name;
+    uint64_t value;
+    int version_added;
+    int version_removed;
+} EnumValue;
 
 typedef struct AstNode {
     NodeType type;
@@ -209,7 +218,16 @@ typedef struct AstNode {
             FieldInfo** fields;
             int field_count;
             int is_reflect;
+            int size;
         } struct_def;
+        
+        struct {
+            char* name;
+            int version;
+            int size;
+            EnumValue** values;
+            int value_count;
+        } enum_def;
         
         struct {
             struct AstNode** items;
@@ -250,6 +268,8 @@ AstNode* ast_create_outb(AstNode* port, AstNode* value, int line, int column);
 AstNode* ast_create_e820f(int line, int column);
 AstNode* ast_create_program(AstNode** items, int count, int line, int column);
 AstNode* ast_create_struct(char* name, int version, int is_reflect, int line, int column);
-void ast_struct_add_field(AstNode* struct_node, char* name, VarType type, int version_added, int version_removed);
+void ast_struct_add_field(AstNode* struct_node, char* name, VarType type, int version_added, int version_removed, int is_pointer, int array_size);
+AstNode* ast_create_enum(char* name, int version, int line, int column);
+void ast_enum_add_value(AstNode* enum_node, char* name, uint64_t value, int version_added, int version_removed);
 
 #endif

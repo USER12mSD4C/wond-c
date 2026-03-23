@@ -76,6 +76,7 @@ static AstNode* parse_block(Parser* parser);
 static AstNode* parse_statement(Parser* parser);
 static AstNode* parse_import(Parser* parser);
 static AstNode* parse_struct(Parser* parser);
+static AstNode* parse_enum(Parser* parser);
 
 static VarType parse_type(Parser* parser, int* is_locate) {
     *is_locate = 0;
@@ -348,6 +349,17 @@ static AstNode* parse_variable_decl(Parser* parser) {
     char* name = parser_strdup(parser->current.value);
     parser_advance(parser);
     
+    // Поддержка массивов
+    int array_size = 0;
+    if (parser->current.type == TOK_LBRACKET) {
+        parser_advance(parser);
+        if (parser->current.type == TOK_NUMBER) {
+            array_size = atoi(parser->current.value);
+            parser_advance(parser);
+        }
+        parser_consume(parser, TOK_RBRACKET, "]");
+    }
+    
     AstNode* init = NULL;
     if (parser->current.type == TOK_EQUALS) {
         parser_advance(parser);
@@ -556,15 +568,17 @@ static AstNode* parse_struct(Parser* parser) {
     parser_advance(parser);
     
     int version = 1;
-    if (parser->current.type == TOK_VERSION) {
-        version = atoi(parser->current.value);
-        parser_advance(parser);
-    }
-    
     int is_reflect = 0;
-    if (parser->current.type == TOK_REFLECT) {
-        is_reflect = 1;
-        parser_advance(parser);
+    
+    // Читаем атрибуты [[version(N)]] и [[reflect]]
+    while (parser->current.type == TOK_VERSION || parser->current.type == TOK_REFLECT) {
+        if (parser->current.type == TOK_VERSION) {
+            version = atoi(parser->current.value);
+            parser_advance(parser);
+        } else if (parser->current.type == TOK_REFLECT) {
+            is_reflect = 1;
+            parser_advance(parser);
+        }
     }
     
     parser_consume(parser, TOK_LBRACE, "{");
@@ -574,7 +588,10 @@ static AstNode* parse_struct(Parser* parser) {
     while (parser->current.type != TOK_RBRACE && parser->current.type != TOK_EOF) {
         int field_version_added = 1;
         int field_version_removed = 0;
+        int is_pointer = 0;
+        int array_size = 0;
         
+        // Читаем версию поля [[version(N)]]
         if (parser->current.type == TOK_VERSION) {
             field_version_added = atoi(parser->current.value);
             parser_advance(parser);
@@ -583,15 +600,23 @@ static AstNode* parse_struct(Parser* parser) {
         int is_locate = 0;
         VarType type = parse_type(parser, &is_locate);
         
+        // Поддержка указателей
+        if (parser->current.type == TOK_ASTERISK) {
+            is_pointer = 1;
+            parser_advance(parser);
+        }
+        
         if (parser->current.type != TOK_IDENTIFIER) {
             parser_error(parser, "expected field name");
         }
         char* field_name = parser_strdup(parser->current.value);
         parser_advance(parser);
         
+        // Поддержка массивов
         if (parser->current.type == TOK_LBRACKET) {
             parser_advance(parser);
             if (parser->current.type == TOK_NUMBER) {
+                array_size = atoi(parser->current.value);
                 parser_advance(parser);
             }
             parser_consume(parser, TOK_RBRACKET, "]");
@@ -599,12 +624,75 @@ static AstNode* parse_struct(Parser* parser) {
         
         parser_consume(parser, TOK_SEMICOLON, ";");
         
-        ast_struct_add_field(struct_node, field_name, type, field_version_added, field_version_removed);
+        ast_struct_add_field(struct_node, field_name, type, 
+                            field_version_added, field_version_removed, 
+                            is_pointer, array_size);
     }
     
     parser_consume(parser, TOK_RBRACE, "}");
     
     return struct_node;
+}
+
+static AstNode* parse_enum(Parser* parser) {
+    int line = parser->current.line;
+    int col = parser->current.column;
+    
+    parser_advance(parser);
+    
+    if (parser->current.type != TOK_IDENTIFIER) {
+        parser_error(parser, "expected enum name");
+    }
+    char* name = parser_strdup(parser->current.value);
+    parser_advance(parser);
+    
+    int version = 1;
+    if (parser->current.type == TOK_VERSION) {
+        version = atoi(parser->current.value);
+        parser_advance(parser);
+    }
+    
+    parser_consume(parser, TOK_LBRACE, "{");
+    
+    AstNode* enum_node = ast_create_enum(name, version, line, col);
+    uint64_t next_value = 0;
+    
+    while (parser->current.type != TOK_RBRACE && parser->current.type != TOK_EOF) {
+        int val_version_added = 1;
+        int val_version_removed = 0;
+        
+        if (parser->current.type == TOK_VERSION) {
+            val_version_added = atoi(parser->current.value);
+            parser_advance(parser);
+        }
+        
+        if (parser->current.type != TOK_IDENTIFIER) {
+            parser_error(parser, "expected enum value name");
+        }
+        char* val_name = parser_strdup(parser->current.value);
+        parser_advance(parser);
+        
+        uint64_t value = next_value;
+        if (parser->current.type == TOK_EQUALS) {
+            parser_advance(parser);
+            if (parser->current.type != TOK_NUMBER) {
+                parser_error(parser, "expected number after '='");
+            }
+            value = strtoull(parser->current.value, NULL, 0);
+            parser_advance(parser);
+            next_value = value + 1;
+        } else {
+            next_value++;
+        }
+        
+        parser_consume(parser, TOK_SEMICOLON, ";");
+        
+        ast_enum_add_value(enum_node, val_name, value, val_version_added, val_version_removed);
+    }
+    
+    parser_consume(parser, TOK_RBRACE, "}");
+    
+    return enum_node;
 }
 
 static AstNode* parse_statement(Parser* parser) {
@@ -637,6 +725,10 @@ static AstNode* parse_statement(Parser* parser) {
     
     if (parser->current.type == TOK_STRUCT) {
         return parse_struct(parser);
+    }
+    
+    if (parser->current.type == TOK_ENUM) {
+        return parse_enum(parser);
     }
     
     if (parser->current.type == TOK_LOCATE ||
@@ -920,6 +1012,8 @@ AstNode* parser_parse(Parser* parser) {
             item = parse_section(parser);
         } else if (parser->current.type == TOK_STRUCT) {
             item = parse_struct(parser);
+        } else if (parser->current.type == TOK_ENUM) {
+            item = parse_enum(parser);
         } else if (parser->current.type == TOK_FN || 
                    parser->current.type == TOK_BAINT || 
                    parser->current.type == TOK_BCLEAR) {

@@ -165,6 +165,15 @@ void ast_free(AstNode* node) {
             free(node->data.struct_def.fields);
             break;
             
+        case NODE_ENUM:
+            free(node->data.enum_def.name);
+            for (int i = 0; i < node->data.enum_def.value_count; i++) {
+                free(node->data.enum_def.values[i]->name);
+                free(node->data.enum_def.values[i]);
+            }
+            free(node->data.enum_def.values);
+            break;
+            
         case NODE_PROGRAM:
             for (int i = 0; i < node->data.program.count; i++) {
                 ast_free(node->data.program.items[i]);
@@ -532,11 +541,12 @@ AstNode* ast_create_struct(char* name, int version, int is_reflect, int line, in
     node->data.struct_def.fields = NULL;
     node->data.struct_def.field_count = 0;
     node->data.struct_def.is_reflect = is_reflect;
+    node->data.struct_def.size = 0;
     return node;
 }
 
 void ast_struct_add_field(AstNode* struct_node, char* name, VarType type, 
-                          int version_added, int version_removed) {
+                          int version_added, int version_removed, int is_pointer, int array_size) {
     if (!struct_node || struct_node->type != NODE_STRUCT) return;
     
     int count = struct_node->data.struct_def.field_count;
@@ -551,7 +561,53 @@ void ast_struct_add_field(AstNode* struct_node, char* name, VarType type,
     field->version_added = version_added;
     field->version_removed = version_removed;
     field->offset = 0;
+    field->is_pointer = is_pointer;
+    field->array_size = array_size;
     
     struct_node->data.struct_def.fields[count] = field;
     struct_node->data.struct_def.field_count++;
+}
+
+AstNode* ast_create_enum(char* name, int version, int line, int column) {
+    AstNode* node = malloc(sizeof(AstNode));
+    node->type = NODE_ENUM;
+    node->line = line;
+    node->column = column;
+    node->attr_baint = 0;
+    node->attr_bclear = 0;
+    node->data.enum_def.name = name;
+    node->data.enum_def.version = version;
+    node->data.enum_def.values = NULL;
+    node->data.enum_def.value_count = 0;
+    node->data.enum_def.size = 4;
+    return node;
+}
+
+void ast_enum_add_value(AstNode* enum_node, char* name, uint64_t value, 
+                        int version_added, int version_removed) {
+    if (!enum_node || enum_node->type != NODE_ENUM) return;
+    
+    int count = enum_node->data.enum_def.value_count;
+    enum_node->data.enum_def.values = realloc(
+        enum_node->data.enum_def.values,
+        (count + 1) * sizeof(EnumValue*)
+    );
+    
+    EnumValue* val = malloc(sizeof(EnumValue));
+    val->name = name;
+    val->value = value;
+    val->version_added = version_added;
+    val->version_removed = version_removed;
+    
+    enum_node->data.enum_def.values[count] = val;
+    enum_node->data.enum_def.value_count++;
+    
+    // Определяем размер enum (наибольшее значение)
+    if (value > 0xFFFFFFFF) {
+        enum_node->data.enum_def.size = 8;
+    } else if (value > 0xFFFF) {
+        if (enum_node->data.enum_def.size < 4) enum_node->data.enum_def.size = 4;
+    } else if (value > 0xFF) {
+        if (enum_node->data.enum_def.size < 2) enum_node->data.enum_def.size = 2;
+    }
 }
