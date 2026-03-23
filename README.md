@@ -1,8 +1,7 @@
-```
-WandC — UTMS Compiler
+**WandC — UTMS Compiler**
 
-Copyright (c) 2026 The UOPL Authors
-```
+**Copyright (c) 2026 The UOPL Authors**
+
 
 Portable compiler for UTMS language.
 
@@ -15,10 +14,10 @@ umk build
 
 == File Extensions ==
 
-  .w      - main source
-  .wlink  - project file
-  .wexp   - extension module
-  .wlib   - library
+-  .w      - main source
+-  .wlink  - linker
+-  .wexp   - extension module
+-  .wlib   - library
 
 == Example ==
 
@@ -27,7 +26,8 @@ umk build
 sc.true
 
 fn main() {
-    printf("Hello, World!\n");
+    u64 x = 15;
+    return x;
 }
 ```
 
@@ -43,4 +43,4 @@ sudo umk install
 
 == License ==
 
-UOPL v1.6.2
+**UOPL v1.6.2**
