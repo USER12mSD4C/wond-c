@@ -19,7 +19,7 @@ void ir_program_free(IRProgram* prog) {
     IRIns* ins = prog->head;
     while (ins) {
         IRIns* next = ins->next;
-        // Освобождаем только если память была выделена
+        // Освобождаем только если указатели не NULL
         if (ins->var_name) {
             platform_free(ins->var_name);
             ins->var_name = NULL;
@@ -84,28 +84,28 @@ IRIns* ir_ins_const(int val) {
 
 IRIns* ir_ins_load_global(const char* name) {
     IRIns* ins = ir_ins_new(IR_GLOBAL);
-    ins->var_name = platform_strdup(name);
+    if (name) ins->var_name = platform_strdup(name);
     return ins;
 }
 
 IRIns* ir_ins_load_section(const char* section, const char* var) {
     IRIns* ins = ir_ins_new(IR_SECTION);
-    ins->section_var.section = platform_strdup(section);
-    ins->section_var.var = platform_strdup(var);
+    if (section) ins->section_var.section = platform_strdup(section);
+    if (var) ins->section_var.var = platform_strdup(var);
     return ins;
 }
 
 IRIns* ir_ins_store_global(const char* name, int src) {
     IRIns* ins = ir_ins_new(IR_STORE);
-    ins->var_name = platform_strdup(name);
+    if (name) ins->var_name = platform_strdup(name);
     ins->src1 = src;
     return ins;
 }
 
 IRIns* ir_ins_store_section(const char* section, const char* var, int src) {
     IRIns* ins = ir_ins_new(IR_STORE);
-    ins->section_var.section = platform_strdup(section);
-    ins->section_var.var = platform_strdup(var);
+    if (section) ins->section_var.section = platform_strdup(section);
+    if (var) ins->section_var.var = platform_strdup(var);
     ins->src1 = src;
     return ins;
 }
@@ -120,7 +120,7 @@ IRIns* ir_ins_binary(IROp op, int left, int right) {
 IRIns* ir_ins_call(const char* name, int* args, int arg_count) {
     (void)args;
     IRIns* ins = ir_ins_new(IR_CALL);
-    ins->var_name = platform_strdup(name);
+    if (name) ins->var_name = platform_strdup(name);
     ins->param_count = arg_count;
     return ins;
 }
@@ -128,7 +128,7 @@ IRIns* ir_ins_call(const char* name, int* args, int arg_count) {
 IRIns* ir_ins_module_call(const char* module, int* args, int arg_count) {
     (void)args;
     IRIns* ins = ir_ins_new(IR_MODULE_CALL);
-    ins->module_name = platform_strdup(module);
+    if (module) ins->module_name = platform_strdup(module);
     ins->param_count = arg_count;
     return ins;
 }

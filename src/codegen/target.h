@@ -21,6 +21,6 @@ typedef struct {
     void (*gen_string)(const char* str, int label, FILE* out);
 } Target;
 
-extern Target target_x86_64;
+extern Target target_json;
 
 #endif

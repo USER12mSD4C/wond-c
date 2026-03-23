@@ -1,6 +1,6 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -O2 -Isrc
-SRCS = src/wandc.c src/preproc.c src/platform.c src/lexer.c src/parser.c src/ast.c src/codegen/ir.c src/codegen/ir_gen.c src/codegen/regalloc_linear.c src/codegen/target_x86_64.c
+SRCS = src/wandc.c src/preproc.c src/platform.c src/lexer.c src/parser.c src/ast.c src/codegen/ir.c src/codegen/ir_gen.c src/codegen/regalloc_linear.c src/codegen/target_json.c
 
 all:
 	$(CC) $(CFLAGS) -o wandc $(SRCS)
@@ -18,7 +18,7 @@ build:
 eoc
 
 clean:
-	rm -f wandc
+	rm -f wandc output.json
 eoc
 
 install: wandc

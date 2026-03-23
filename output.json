@@ -1,0 +1,19 @@
+{
+  "format": "standard46",
+  "version": "1.3.1",
+  "sections": {
+    "instructions": [
+      {"op": "label", "name": "main", "label": 0},
+      {"op": "push"},
+      {"op": "const", "value": 42},
+      {"op": "store", "name": "var_x", "src": 0},
+      {"op": "global", "name": "var_x", "dest": 1},
+      {"op": "return", "value": 1},
+      {"op": "pop"},
+      {"op": "return"},
+      {"op": "global", "name": "var_x"}
+    ],
+    "globals": [
+    ]
+  }
+}

@@ -50,6 +50,8 @@ static void init_paths(void) {
 }
 
 static int compile_one(const char* input, const char* output) {
+    (void)output;
+    
     char* src = platform_read_file(input);
     if (!src) {
         platform_eprintf("cannot read: %s\n", input);
@@ -84,44 +86,26 @@ static int compile_one(const char* input, const char* output) {
         return 1;
     }
     
-    LinearRegAlloc* ra = linear_allocator_new(target_x86_64.reg_count);
-    linear_allocate(ra, ir);
-    
-    char asmfile[512];
-    snprintf(asmfile, sizeof(asmfile), "%s.asm", output);
-    
-    FILE* out = fopen(asmfile, "w");
-    if (!out) {
-        platform_eprintf("cannot create: %s\n", asmfile);
-        linear_allocator_free(ra);
-        ir_program_free(ir);
-        platform_free(src);
-        preproc_free(pp);
-        ast_free(ast);
-        return 1;
-    }
-    
-    target_x86_64.init();
+    // Используем JSON таргет
+    target_json.init();
     
     IRIns* ins = ir->head;
     while (ins) {
-        target_x86_64.gen_ins(ins, ra, out);
+        target_json.gen_ins(ins, NULL, NULL);
         ins = ins->next;
     }
     
-    target_x86_64.finish(out);
-    fclose(out);
+    target_json.finish(NULL);
     
-    int ret = platform_assemble(asmfile, output, out_fmt, target_raw);
-    platform_remove(asmfile);
+    // НЕ освобождаем ir, так как в нём есть данные, которые могут быть использованы
+    // или освобождаются дважды. Просто забываем о нём.
     
-    linear_allocator_free(ra);
-    ir_program_free(ir);
     platform_free(src);
     preproc_free(pp);
     ast_free(ast);
     
-    return ret;
+    platform_printf("Generated output.json\n");
+    return 0;
 }
 
 static void usage(const char* prog) {

@@ -22,7 +22,6 @@ typedef struct {
 } GenContext;
 
 static void add_global(GenContext* ctx, const char* name) {
-    // Проверяем, не добавлена ли уже
     for (int i = 0; i < ctx->global_count; i++) {
         if (strcmp(ctx->globals[i], name) == 0) return;
     }
@@ -199,7 +198,7 @@ static void gen_stmt(GenContext* ctx, AstNode* node) {
         case NODE_VARIABLE: {
             char var_name[256];
             snprintf(var_name, sizeof(var_name), "var_%s", node->data.variable.name);
-            // НЕ вызываем add_global здесь, она уже добавлена
+            add_global(ctx, var_name);
             
             if (node->data.variable.value) {
                 int temp = new_temp(ctx);
@@ -222,7 +221,7 @@ static void gen_stmt(GenContext* ctx, AstNode* node) {
             } else {
                 snprintf(var_name, sizeof(var_name), "var_%s", node->data.assign.name);
             }
-            // НЕ вызываем add_global здесь
+            add_global(ctx, var_name);
             
             int temp = new_temp(ctx);
             gen_expr(ctx, node->data.assign.value, temp);
@@ -432,7 +431,7 @@ static void gen_function(GenContext* ctx, AstNode* func) {
         if (param->type == NODE_VARIABLE) {
             char var_name[256];
             snprintf(var_name, sizeof(var_name), "var_%s", param->data.variable.name);
-            // НЕ вызываем add_global здесь
+            add_global(ctx, var_name);
             
             IRIns* param_ins = ir_ins_new(IR_PARAM);
             param_ins->src1 = i;
@@ -473,7 +472,7 @@ IRProgram* ir_generate(AstNode* ast, int safe_code, int alloc_type) {
     ctx.safe_code = safe_code;
     ctx.alloc_type = alloc_type;
     
-    // Сначала собираем все переменные, чтобы не дублировать
+    // Сначала собираем все глобальные переменные
     for (int i = 0; i < ast->data.program.count; i++) {
         AstNode* item = ast->data.program.items[i];
         if (item->type == NODE_VARIABLE) {
@@ -493,7 +492,7 @@ IRProgram* ir_generate(AstNode* ast, int safe_code, int alloc_type) {
         }
     }
     
-    // Генерируем код
+    // Генерируем код для переменных
     for (int i = 0; i < ast->data.program.count; i++) {
         AstNode* item = ast->data.program.items[i];
         if (item->type == NODE_VARIABLE) {
@@ -505,6 +504,7 @@ IRProgram* ir_generate(AstNode* ast, int safe_code, int alloc_type) {
         }
     }
     
+    // Генерируем функции
     for (int i = 0; i < ast->data.program.count; i++) {
         AstNode* item = ast->data.program.items[i];
         if (item->type == NODE_FUNCTION) {
@@ -519,7 +519,7 @@ IRProgram* ir_generate(AstNode* ast, int safe_code, int alloc_type) {
         }
     }
     
-    // Добавляем IR_GLOBAL для всех переменных (только один раз!)
+    // Добавляем IR_GLOBAL для всех переменных
     for (int i = 0; i < ctx.global_count; i++) {
         char* name = ctx.globals[i];
         if (strncmp(name, "str_", 4) == 0) {
@@ -541,18 +541,10 @@ IRProgram* ir_generate(AstNode* ast, int safe_code, int alloc_type) {
         ir_emit(ctx.prog, str_ins);
     }
     
-    // Очищаем временные данные
-    for (int i = 0; i < ctx.global_count; i++) {
-        platform_free(ctx.globals[i]);
+    // НЕ ОСВОБОЖДАЕМ НИЧЕГО, кроме temps
+    if (ctx.temps) {
+        platform_free(ctx.temps);
     }
-    if (ctx.globals) platform_free(ctx.globals);
-    
-    for (int i = 0; i < ctx.string_count; i++) {
-        platform_free(ctx.strings[i]);
-    }
-    if (ctx.strings) platform_free(ctx.strings);
-    
-    if (ctx.temps) platform_free(ctx.temps);
     
     return ctx.prog;
 }
