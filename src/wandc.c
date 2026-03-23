@@ -93,11 +93,11 @@ static int compile_one(const char* input, const char* output) {
     FILE* out = fopen(asmfile, "w");
     if (!out) {
         platform_eprintf("cannot create: %s\n", asmfile);
+        linear_allocator_free(ra);
+        ir_program_free(ir);
         platform_free(src);
         preproc_free(pp);
         ast_free(ast);
-        linear_allocator_free(ra);
-        ir_program_free(ir);
         return 1;
     }
     

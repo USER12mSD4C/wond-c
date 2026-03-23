@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <stdarg.h>
 #include "target_x86_64.h"
 #include "../platform.h"
 
@@ -8,97 +10,147 @@ const char* x86_64_regs[] = {
     "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"
 };
 
-static FILE* current_out = NULL;
-static int has_data = 0;
-static int has_bss = 0;
-static int has_rodata = 0;
+typedef struct {
+    char* name;
+    int has_init;
+    char* init_val;
+} VarDecl;
+
+static VarDecl* vars = NULL;
+static int var_count = 0;
+static int var_cap = 0;
+
+typedef struct CodeBuf {
+    char* data;
+    int len;
+    int cap;
+} CodeBuf;
+
+static CodeBuf code_buf;
+
+static void code_buf_init(void) {
+    code_buf.cap = 65536;
+    code_buf.data = platform_malloc(code_buf.cap);
+    code_buf.len = 0;
+    code_buf.data[0] = '\0';
+}
+
+static void code_buf_append(const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    int needed = vsnprintf(NULL, 0, fmt, args) + 1;
+    va_end(args);
+    
+    if (code_buf.len + needed >= code_buf.cap) {
+        code_buf.cap = code_buf.cap * 2;
+        code_buf.data = platform_realloc(code_buf.data, code_buf.cap);
+    }
+    
+    va_start(args, fmt);
+    vsprintf(code_buf.data + code_buf.len, fmt, args);
+    code_buf.len += needed - 1;
+    va_end(args);
+}
+
+static void code_buf_free(void) {
+    if (code_buf.data) platform_free(code_buf.data);
+    code_buf.data = NULL;
+    code_buf.len = 0;
+    code_buf.cap = 0;
+}
+
+static void add_var(const char* name, int has_init, const char* init_val) {
+    for (int i = 0; i < var_count; i++) {
+        if (strcmp(vars[i].name, name) == 0) {
+            if (has_init && !vars[i].has_init) {
+                vars[i].has_init = 1;
+                if (init_val) vars[i].init_val = platform_strdup(init_val);
+            }
+            return;
+        }
+    }
+    
+    if (var_count >= var_cap) {
+        var_cap = var_cap ? var_cap * 2 : 64;
+        vars = platform_realloc(vars, var_cap * sizeof(VarDecl));
+    }
+    
+    vars[var_count].name = platform_strdup(name);
+    vars[var_count].has_init = has_init;
+    vars[var_count].init_val = has_init && init_val ? platform_strdup(init_val) : NULL;
+    var_count++;
+}
 
 static void x86_64_init(void) {
-    has_data = 0;
-    has_bss = 0;
-    has_rodata = 0;
+    var_count = 0;
+    code_buf_init();
 }
 
 static void x86_64_prologue(void) {
-    fprintf(current_out, "    push rbp\n");
-    fprintf(current_out, "    mov rbp, rsp\n");
-    fprintf(current_out, "    sub rsp, 32\n");
+    code_buf_append("    push rbp\n");
+    code_buf_append("    mov rbp, rsp\n");
+    code_buf_append("    sub rsp, 32\n");
 }
 
 static void x86_64_epilogue(void) {
-    fprintf(current_out, "    mov rsp, rbp\n");
-    fprintf(current_out, "    pop rbp\n");
+    code_buf_append("    mov rsp, rbp\n");
+    code_buf_append("    pop rbp\n");
 }
 
 static void x86_64_gen_ins(IRIns* ins, LinearRegAlloc* ra, FILE* out) {
-    current_out = out;
+    (void)out;
     
     switch (ins->op) {
         case IR_STRING: {
-            if (!has_rodata) {
-                fprintf(out, "section .rodata\n");
-                has_rodata = 1;
-            }
-            fprintf(out, "%s: db ", ins->var_name);
-            int len = strlen(ins->string_val);
-            for (int i = 0; i < len; i++) {
-                if (i > 0) fprintf(out, ", ");
-                fprintf(out, "%d", (unsigned char)ins->string_val[i]);
-            }
-            fprintf(out, ", 0\n");
+            add_var(ins->var_name, 1, ins->string_val);
             break;
         }
         
         case IR_GLOBAL: {
-            // пропускаем объявления, они будут в секциях
+            add_var(ins->var_name, 0, NULL);
+            
+            if (ins->dest == -1) {
+                break;
+            }
+            
+            int reg = linear_get_reg(ra, ins->dest);
+            if (reg >= 0) {
+                code_buf_append("    mov %s, [rel %s]\n", x86_64_regs[reg], ins->var_name);
+            } else {
+                int spill = linear_get_spill(ra, ins->dest);
+                if (spill >= 0) {
+                    code_buf_append("    mov rax, [rel %s]\n", ins->var_name);
+                    code_buf_append("    mov [rbp-%d], rax\n", (spill+1)*8);
+                }
+            }
             break;
         }
         
         case IR_CONST: {
             int reg = linear_get_reg(ra, ins->dest);
             if (reg >= 0) {
-                fprintf(out, "    mov %s, %d\n", x86_64_regs[reg], ins->const_val);
+                code_buf_append("    mov %s, %d\n", x86_64_regs[reg], ins->const_val);
             } else {
                 int spill = linear_get_spill(ra, ins->dest);
                 if (spill >= 0) {
-                    fprintf(out, "    mov rax, %d\n", ins->const_val);
-                    fprintf(out, "    mov [rbp-%d], rax\n", (spill+1)*8);
-                }
-            }
-            break;
-        }
-        
-        case IR_LOAD: {
-            int src_reg = linear_get_reg(ra, ins->src1);
-            int dest_reg = linear_get_reg(ra, ins->dest);
-            
-            if (src_reg >= 0 && dest_reg >= 0) {
-                fprintf(out, "    mov %s, [%s]\n", x86_64_regs[dest_reg], x86_64_regs[src_reg]);
-            } else if (src_reg >= 0 && dest_reg < 0) {
-                int spill = linear_get_spill(ra, ins->dest);
-                if (spill >= 0) {
-                    fprintf(out, "    mov rax, [%s]\n", x86_64_regs[src_reg]);
-                    fprintf(out, "    mov [rbp-%d], rax\n", (spill+1)*8);
+                    code_buf_append("    mov rax, %d\n", ins->const_val);
+                    code_buf_append("    mov [rbp-%d], rax\n", (spill+1)*8);
                 }
             }
             break;
         }
         
         case IR_STORE: {
-            int src_reg = linear_get_reg(ra, ins->src1);
             if (ins->var_name) {
-                if (!has_data && !has_bss) {
-                    fprintf(out, "section .data\n");
-                    has_data = 1;
-                }
-                fprintf(out, "%s: dq 0\n", ins->var_name);
+                add_var(ins->var_name, 1, NULL);
+                int src_reg = linear_get_reg(ra, ins->src1);
                 if (src_reg >= 0) {
-                    fprintf(out, "    mov [rel %s], %s\n", ins->var_name, x86_64_regs[src_reg]);
+                    code_buf_append("    mov [rel %s], %s\n", ins->var_name, x86_64_regs[src_reg]);
                 } else {
                     int spill = linear_get_spill(ra, ins->src1);
                     if (spill >= 0) {
-                        fprintf(out, "    mov rax, [rbp-%d]\n", (spill+1)*8);
-                        fprintf(out, "    mov [rel %s], rax\n", ins->var_name);
+                        code_buf_append("    mov rax, [rbp-%d]\n", (spill+1)*8);
+                        code_buf_append("    mov [rel %s], rax\n", ins->var_name);
                     }
                 }
             }
@@ -112,9 +164,9 @@ static void x86_64_gen_ins(IRIns* ins, LinearRegAlloc* ra, FILE* out) {
             
             if (src1_reg >= 0 && src2_reg >= 0 && dest_reg >= 0) {
                 if (dest_reg != src1_reg) {
-                    fprintf(out, "    mov %s, %s\n", x86_64_regs[dest_reg], x86_64_regs[src1_reg]);
+                    code_buf_append("    mov %s, %s\n", x86_64_regs[dest_reg], x86_64_regs[src1_reg]);
                 }
-                fprintf(out, "    add %s, %s\n", x86_64_regs[dest_reg], x86_64_regs[src2_reg]);
+                code_buf_append("    add %s, %s\n", x86_64_regs[dest_reg], x86_64_regs[src2_reg]);
             }
             break;
         }
@@ -126,9 +178,9 @@ static void x86_64_gen_ins(IRIns* ins, LinearRegAlloc* ra, FILE* out) {
             
             if (src1_reg >= 0 && src2_reg >= 0 && dest_reg >= 0) {
                 if (dest_reg != src1_reg) {
-                    fprintf(out, "    mov %s, %s\n", x86_64_regs[dest_reg], x86_64_regs[src1_reg]);
+                    code_buf_append("    mov %s, %s\n", x86_64_regs[dest_reg], x86_64_regs[src1_reg]);
                 }
-                fprintf(out, "    sub %s, %s\n", x86_64_regs[dest_reg], x86_64_regs[src2_reg]);
+                code_buf_append("    sub %s, %s\n", x86_64_regs[dest_reg], x86_64_regs[src2_reg]);
             }
             break;
         }
@@ -140,9 +192,9 @@ static void x86_64_gen_ins(IRIns* ins, LinearRegAlloc* ra, FILE* out) {
             
             if (src1_reg >= 0 && src2_reg >= 0 && dest_reg >= 0) {
                 if (dest_reg != src1_reg) {
-                    fprintf(out, "    mov %s, %s\n", x86_64_regs[dest_reg], x86_64_regs[src1_reg]);
+                    code_buf_append("    mov %s, %s\n", x86_64_regs[dest_reg], x86_64_regs[src1_reg]);
                 }
-                fprintf(out, "    imul %s, %s\n", x86_64_regs[dest_reg], x86_64_regs[src2_reg]);
+                code_buf_append("    imul %s, %s\n", x86_64_regs[dest_reg], x86_64_regs[src2_reg]);
             }
             break;
         }
@@ -152,13 +204,13 @@ static void x86_64_gen_ins(IRIns* ins, LinearRegAlloc* ra, FILE* out) {
             int src2_reg = linear_get_reg(ra, ins->src2);
             
             if (src1_reg >= 0 && src2_reg >= 0) {
-                fprintf(out, "    mov rax, %s\n", x86_64_regs[src1_reg]);
-                fprintf(out, "    xor rdx, rdx\n");
-                fprintf(out, "    div %s\n", x86_64_regs[src2_reg]);
+                code_buf_append("    mov rax, %s\n", x86_64_regs[src1_reg]);
+                code_buf_append("    xor rdx, rdx\n");
+                code_buf_append("    div %s\n", x86_64_regs[src2_reg]);
                 
                 int dest_reg = linear_get_reg(ra, ins->dest);
                 if (dest_reg >= 0) {
-                    fprintf(out, "    mov %s, rax\n", x86_64_regs[dest_reg]);
+                    code_buf_append("    mov %s, rax\n", x86_64_regs[dest_reg]);
                 }
             }
             break;
@@ -169,13 +221,13 @@ static void x86_64_gen_ins(IRIns* ins, LinearRegAlloc* ra, FILE* out) {
             int src2_reg = linear_get_reg(ra, ins->src2);
             
             if (src1_reg >= 0 && src2_reg >= 0) {
-                fprintf(out, "    mov rax, %s\n", x86_64_regs[src1_reg]);
-                fprintf(out, "    xor rdx, rdx\n");
-                fprintf(out, "    div %s\n", x86_64_regs[src2_reg]);
+                code_buf_append("    mov rax, %s\n", x86_64_regs[src1_reg]);
+                code_buf_append("    xor rdx, rdx\n");
+                code_buf_append("    div %s\n", x86_64_regs[src2_reg]);
                 
                 int dest_reg = linear_get_reg(ra, ins->dest);
                 if (dest_reg >= 0) {
-                    fprintf(out, "    mov %s, rdx\n", x86_64_regs[dest_reg]);
+                    code_buf_append("    mov %s, rdx\n", x86_64_regs[dest_reg]);
                 }
             }
             break;
@@ -187,9 +239,9 @@ static void x86_64_gen_ins(IRIns* ins, LinearRegAlloc* ra, FILE* out) {
             int dest_reg = linear_get_reg(ra, ins->dest);
             
             if (src1_reg >= 0 && src2_reg >= 0 && dest_reg >= 0) {
-                fprintf(out, "    cmp %s, %s\n", x86_64_regs[src1_reg], x86_64_regs[src2_reg]);
-                fprintf(out, "    sete al\n");
-                fprintf(out, "    movzx %s, al\n", x86_64_regs[dest_reg]);
+                code_buf_append("    cmp %s, %s\n", x86_64_regs[src1_reg], x86_64_regs[src2_reg]);
+                code_buf_append("    sete al\n");
+                code_buf_append("    movzx %s, al\n", x86_64_regs[dest_reg]);
             }
             break;
         }
@@ -200,9 +252,9 @@ static void x86_64_gen_ins(IRIns* ins, LinearRegAlloc* ra, FILE* out) {
             int dest_reg = linear_get_reg(ra, ins->dest);
             
             if (src1_reg >= 0 && src2_reg >= 0 && dest_reg >= 0) {
-                fprintf(out, "    cmp %s, %s\n", x86_64_regs[src1_reg], x86_64_regs[src2_reg]);
-                fprintf(out, "    setne al\n");
-                fprintf(out, "    movzx %s, al\n", x86_64_regs[dest_reg]);
+                code_buf_append("    cmp %s, %s\n", x86_64_regs[src1_reg], x86_64_regs[src2_reg]);
+                code_buf_append("    setne al\n");
+                code_buf_append("    movzx %s, al\n", x86_64_regs[dest_reg]);
             }
             break;
         }
@@ -213,9 +265,9 @@ static void x86_64_gen_ins(IRIns* ins, LinearRegAlloc* ra, FILE* out) {
             int dest_reg = linear_get_reg(ra, ins->dest);
             
             if (src1_reg >= 0 && src2_reg >= 0 && dest_reg >= 0) {
-                fprintf(out, "    cmp %s, %s\n", x86_64_regs[src1_reg], x86_64_regs[src2_reg]);
-                fprintf(out, "    setl al\n");
-                fprintf(out, "    movzx %s, al\n", x86_64_regs[dest_reg]);
+                code_buf_append("    cmp %s, %s\n", x86_64_regs[src1_reg], x86_64_regs[src2_reg]);
+                code_buf_append("    setl al\n");
+                code_buf_append("    movzx %s, al\n", x86_64_regs[dest_reg]);
             }
             break;
         }
@@ -226,9 +278,9 @@ static void x86_64_gen_ins(IRIns* ins, LinearRegAlloc* ra, FILE* out) {
             int dest_reg = linear_get_reg(ra, ins->dest);
             
             if (src1_reg >= 0 && src2_reg >= 0 && dest_reg >= 0) {
-                fprintf(out, "    cmp %s, %s\n", x86_64_regs[src1_reg], x86_64_regs[src2_reg]);
-                fprintf(out, "    setle al\n");
-                fprintf(out, "    movzx %s, al\n", x86_64_regs[dest_reg]);
+                code_buf_append("    cmp %s, %s\n", x86_64_regs[src1_reg], x86_64_regs[src2_reg]);
+                code_buf_append("    setle al\n");
+                code_buf_append("    movzx %s, al\n", x86_64_regs[dest_reg]);
             }
             break;
         }
@@ -239,9 +291,9 @@ static void x86_64_gen_ins(IRIns* ins, LinearRegAlloc* ra, FILE* out) {
             int dest_reg = linear_get_reg(ra, ins->dest);
             
             if (src1_reg >= 0 && src2_reg >= 0 && dest_reg >= 0) {
-                fprintf(out, "    cmp %s, %s\n", x86_64_regs[src1_reg], x86_64_regs[src2_reg]);
-                fprintf(out, "    setg al\n");
-                fprintf(out, "    movzx %s, al\n", x86_64_regs[dest_reg]);
+                code_buf_append("    cmp %s, %s\n", x86_64_regs[src1_reg], x86_64_regs[src2_reg]);
+                code_buf_append("    setg al\n");
+                code_buf_append("    movzx %s, al\n", x86_64_regs[dest_reg]);
             }
             break;
         }
@@ -252,9 +304,9 @@ static void x86_64_gen_ins(IRIns* ins, LinearRegAlloc* ra, FILE* out) {
             int dest_reg = linear_get_reg(ra, ins->dest);
             
             if (src1_reg >= 0 && src2_reg >= 0 && dest_reg >= 0) {
-                fprintf(out, "    cmp %s, %s\n", x86_64_regs[src1_reg], x86_64_regs[src2_reg]);
-                fprintf(out, "    setge al\n");
-                fprintf(out, "    movzx %s, al\n", x86_64_regs[dest_reg]);
+                code_buf_append("    cmp %s, %s\n", x86_64_regs[src1_reg], x86_64_regs[src2_reg]);
+                code_buf_append("    setge al\n");
+                code_buf_append("    movzx %s, al\n", x86_64_regs[dest_reg]);
             }
             break;
         }
@@ -265,12 +317,12 @@ static void x86_64_gen_ins(IRIns* ins, LinearRegAlloc* ra, FILE* out) {
             int dest_reg = linear_get_reg(ra, ins->dest);
             
             if (src1_reg >= 0 && src2_reg >= 0 && dest_reg >= 0) {
-                fprintf(out, "    test %s, %s\n", x86_64_regs[src1_reg], x86_64_regs[src1_reg]);
-                fprintf(out, "    setnz al\n");
-                fprintf(out, "    test %s, %s\n", x86_64_regs[src2_reg], x86_64_regs[src2_reg]);
-                fprintf(out, "    setnz bl\n");
-                fprintf(out, "    and al, bl\n");
-                fprintf(out, "    movzx %s, al\n", x86_64_regs[dest_reg]);
+                code_buf_append("    test %s, %s\n", x86_64_regs[src1_reg], x86_64_regs[src1_reg]);
+                code_buf_append("    setnz al\n");
+                code_buf_append("    test %s, %s\n", x86_64_regs[src2_reg], x86_64_regs[src2_reg]);
+                code_buf_append("    setnz bl\n");
+                code_buf_append("    and al, bl\n");
+                code_buf_append("    movzx %s, al\n", x86_64_regs[dest_reg]);
             }
             break;
         }
@@ -281,12 +333,12 @@ static void x86_64_gen_ins(IRIns* ins, LinearRegAlloc* ra, FILE* out) {
             int dest_reg = linear_get_reg(ra, ins->dest);
             
             if (src1_reg >= 0 && src2_reg >= 0 && dest_reg >= 0) {
-                fprintf(out, "    test %s, %s\n", x86_64_regs[src1_reg], x86_64_regs[src1_reg]);
-                fprintf(out, "    setnz al\n");
-                fprintf(out, "    test %s, %s\n", x86_64_regs[src2_reg], x86_64_regs[src2_reg]);
-                fprintf(out, "    setnz bl\n");
-                fprintf(out, "    or al, bl\n");
-                fprintf(out, "    movzx %s, al\n", x86_64_regs[dest_reg]);
+                code_buf_append("    test %s, %s\n", x86_64_regs[src1_reg], x86_64_regs[src1_reg]);
+                code_buf_append("    setnz al\n");
+                code_buf_append("    test %s, %s\n", x86_64_regs[src2_reg], x86_64_regs[src2_reg]);
+                code_buf_append("    setnz bl\n");
+                code_buf_append("    or al, bl\n");
+                code_buf_append("    movzx %s, al\n", x86_64_regs[dest_reg]);
             }
             break;
         }
@@ -296,9 +348,9 @@ static void x86_64_gen_ins(IRIns* ins, LinearRegAlloc* ra, FILE* out) {
             int dest_reg = linear_get_reg(ra, ins->dest);
             
             if (src_reg >= 0 && dest_reg >= 0) {
-                fprintf(out, "    test %s, %s\n", x86_64_regs[src_reg], x86_64_regs[src_reg]);
-                fprintf(out, "    sete al\n");
-                fprintf(out, "    movzx %s, al\n", x86_64_regs[dest_reg]);
+                code_buf_append("    test %s, %s\n", x86_64_regs[src_reg], x86_64_regs[src_reg]);
+                code_buf_append("    sete al\n");
+                code_buf_append("    movzx %s, al\n", x86_64_regs[dest_reg]);
             }
             break;
         }
@@ -309,32 +361,32 @@ static void x86_64_gen_ins(IRIns* ins, LinearRegAlloc* ra, FILE* out) {
             
             if (src_reg >= 0 && dest_reg >= 0) {
                 if (dest_reg != src_reg) {
-                    fprintf(out, "    mov %s, %s\n", x86_64_regs[dest_reg], x86_64_regs[src_reg]);
+                    code_buf_append("    mov %s, %s\n", x86_64_regs[dest_reg], x86_64_regs[src_reg]);
                 }
-                fprintf(out, "    neg %s\n", x86_64_regs[dest_reg]);
+                code_buf_append("    neg %s\n", x86_64_regs[dest_reg]);
             }
             break;
         }
         
         case IR_LABEL: {
             if (ins->var_name) {
-                fprintf(out, "%s:\n", ins->var_name);
+                code_buf_append("%s:\n", ins->var_name);
             } else {
-                fprintf(out, ".L%d:\n", ins->label);
+                code_buf_append(".L%d:\n", ins->label);
             }
             break;
         }
         
         case IR_JMP: {
-            fprintf(out, "    jmp .L%d\n", ins->label);
+            code_buf_append("    jmp .L%d\n", ins->label);
             break;
         }
         
         case IR_JZ: {
             int src_reg = linear_get_reg(ra, ins->src1);
             if (src_reg >= 0) {
-                fprintf(out, "    test %s, %s\n", x86_64_regs[src_reg], x86_64_regs[src_reg]);
-                fprintf(out, "    jz .L%d\n", ins->label);
+                code_buf_append("    test %s, %s\n", x86_64_regs[src_reg], x86_64_regs[src_reg]);
+                code_buf_append("    jz .L%d\n", ins->label);
             }
             break;
         }
@@ -342,14 +394,14 @@ static void x86_64_gen_ins(IRIns* ins, LinearRegAlloc* ra, FILE* out) {
         case IR_JNZ: {
             int src_reg = linear_get_reg(ra, ins->src1);
             if (src_reg >= 0) {
-                fprintf(out, "    test %s, %s\n", x86_64_regs[src_reg], x86_64_regs[src_reg]);
-                fprintf(out, "    jnz .L%d\n", ins->label);
+                code_buf_append("    test %s, %s\n", x86_64_regs[src_reg], x86_64_regs[src_reg]);
+                code_buf_append("    jnz .L%d\n", ins->label);
             }
             break;
         }
         
         case IR_CALL: {
-            fprintf(out, "    call %s\n", ins->var_name);
+            code_buf_append("    call %s\n", ins->var_name);
             break;
         }
         
@@ -357,15 +409,15 @@ static void x86_64_gen_ins(IRIns* ins, LinearRegAlloc* ra, FILE* out) {
             if (ins->src1 >= 0) {
                 int src_reg = linear_get_reg(ra, ins->src1);
                 if (src_reg >= 0) {
-                    fprintf(out, "    mov rax, %s\n", x86_64_regs[src_reg]);
+                    code_buf_append("    mov rax, %s\n", x86_64_regs[src_reg]);
                 } else {
                     int spill = linear_get_spill(ra, ins->src1);
                     if (spill >= 0) {
-                        fprintf(out, "    mov rax, [rbp-%d]\n", (spill+1)*8);
+                        code_buf_append("    mov rax, [rbp-%d]\n", (spill+1)*8);
                     }
                 }
             }
-            fprintf(out, "    ret\n");
+            code_buf_append("    ret\n");
             break;
         }
         
@@ -373,12 +425,12 @@ static void x86_64_gen_ins(IRIns* ins, LinearRegAlloc* ra, FILE* out) {
             int src_reg = linear_get_reg(ra, ins->src1);
             if (src_reg >= 0) {
                 switch (ins->dest) {
-                    case 0: fprintf(out, "    mov rdi, %s\n", x86_64_regs[src_reg]); break;
-                    case 1: fprintf(out, "    mov rsi, %s\n", x86_64_regs[src_reg]); break;
-                    case 2: fprintf(out, "    mov rdx, %s\n", x86_64_regs[src_reg]); break;
-                    case 3: fprintf(out, "    mov rcx, %s\n", x86_64_regs[src_reg]); break;
-                    case 4: fprintf(out, "    mov r8, %s\n", x86_64_regs[src_reg]); break;
-                    case 5: fprintf(out, "    mov r9, %s\n", x86_64_regs[src_reg]); break;
+                    case 0: code_buf_append("    mov rdi, %s\n", x86_64_regs[src_reg]); break;
+                    case 1: code_buf_append("    mov rsi, %s\n", x86_64_regs[src_reg]); break;
+                    case 2: code_buf_append("    mov rdx, %s\n", x86_64_regs[src_reg]); break;
+                    case 3: code_buf_append("    mov rcx, %s\n", x86_64_regs[src_reg]); break;
+                    case 4: code_buf_append("    mov r8, %s\n", x86_64_regs[src_reg]); break;
+                    case 5: code_buf_append("    mov r9, %s\n", x86_64_regs[src_reg]); break;
                     default: break;
                 }
             }
@@ -386,17 +438,17 @@ static void x86_64_gen_ins(IRIns* ins, LinearRegAlloc* ra, FILE* out) {
         }
         
         case IR_MODULE_CALL: {
-            fprintf(out, "    call module_entry\n");
+            code_buf_append("    call module_entry\n");
             break;
         }
         
         case IR_PUSH: {
             if (ins->src1 == -1) {
-                fprintf(out, "    push rbp\n");
+                code_buf_append("    push rbp\n");
             } else {
                 int src_reg = linear_get_reg(ra, ins->src1);
                 if (src_reg >= 0) {
-                    fprintf(out, "    push %s\n", x86_64_regs[src_reg]);
+                    code_buf_append("    push %s\n", x86_64_regs[src_reg]);
                 }
             }
             break;
@@ -404,11 +456,11 @@ static void x86_64_gen_ins(IRIns* ins, LinearRegAlloc* ra, FILE* out) {
         
         case IR_POP: {
             if (ins->src1 == -1) {
-                fprintf(out, "    pop rbp\n");
+                code_buf_append("    pop rbp\n");
             } else {
                 int dest_reg = linear_get_reg(ra, ins->dest);
                 if (dest_reg >= 0) {
-                    fprintf(out, "    pop %s\n", x86_64_regs[dest_reg]);
+                    code_buf_append("    pop %s\n", x86_64_regs[dest_reg]);
                 }
             }
             break;
@@ -420,18 +472,65 @@ static void x86_64_gen_ins(IRIns* ins, LinearRegAlloc* ra, FILE* out) {
 }
 
 static void x86_64_gen_label(int label, FILE* out) {
-    fprintf(out, ".L%d:\n", label);
+    (void)label;
+    (void)out;
 }
 
 static void x86_64_finish(FILE* out) {
-    (void)out;
+    fprintf(out, "bits 64\n");
+    fprintf(out, "default rel\n\n");
+    
+    fprintf(out, "section .rodata\n");
+    int has_rodata = 0;
+    for (int i = 0; i < var_count; i++) {
+        if (strncmp(vars[i].name, "str_", 4) == 0 && vars[i].has_init && vars[i].init_val) {
+            fprintf(out, "%s: db %s, 0\n", vars[i].name, vars[i].init_val);
+            has_rodata = 1;
+        }
+    }
+    if (!has_rodata) fprintf(out, "; no rodata\n");
+    fprintf(out, "\n");
+    
+    fprintf(out, "section .data\n");
+    int has_data = 0;
+    for (int i = 0; i < var_count; i++) {
+        if (strncmp(vars[i].name, "str_", 4) != 0 && vars[i].has_init) {
+            fprintf(out, "%s: dq 0\n", vars[i].name);
+            has_data = 1;
+        }
+    }
+    if (!has_data) fprintf(out, "; no data\n");
+    fprintf(out, "\n");
+    
+    fprintf(out, "section .bss\n");
+    int has_bss = 0;
+    for (int i = 0; i < var_count; i++) {
+        if (strncmp(vars[i].name, "str_", 4) != 0 && !vars[i].has_init) {
+            fprintf(out, "%s: resq 1\n", vars[i].name);
+            has_bss = 1;
+        }
+    }
+    if (!has_bss) fprintf(out, "; no bss\n");
+    fprintf(out, "\n");
+    
+    fprintf(out, "section .text\n");
+    fprintf(out, "%s", code_buf.data);
+    
+    code_buf_free();
+    for (int i = 0; i < var_count; i++) {
+        platform_free(vars[i].name);
+        if (vars[i].init_val) platform_free(vars[i].init_val);
+    }
+    platform_free(vars);
+    vars = NULL;
+    var_count = var_cap = 0;
 }
 
 static void x86_64_gen_global(const char* name, int size, const char* init, FILE* out) {
-    (void)size;
-    (void)out;
     (void)name;
+    (void)size;
     (void)init;
+    (void)out;
 }
 
 static void x86_64_gen_section_global(const char* section, const char* name, int size, const char* init, FILE* out) {
