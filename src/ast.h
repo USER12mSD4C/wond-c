@@ -18,8 +18,8 @@ typedef enum {
 
 typedef enum {
     NODE_PROGRAM,
-    NODE_IMPORT,         // #import
-    NODE_DIRECTIVE,      // adrload, bits
+    NODE_IMPORT,
+    NODE_DIRECTIVE,
     NODE_NUMBER,
     NODE_STRING,
     NODE_IDENTIFIER,
@@ -44,52 +44,55 @@ typedef enum {
     NODE_BMLOC,
     NODE_E820F,
     NODE_INB,
-    NODE_OUTB
+    NODE_OUTB,
+    NODE_STRUCT,
+    NODE_REFLECT
 } NodeType;
+
+typedef struct FieldInfo {
+    char* name;
+    VarType type;
+    int version_added;
+    int version_removed;
+    int offset;
+} FieldInfo;
 
 typedef struct AstNode {
     NodeType type;
     int line;
     int column;
-    int attr_baint;      // для функций-обработчиков прерываний
-    int attr_bclear;     // для функций без пролога/эпилога
+    int attr_baint;
+    int attr_bclear;
     
     union {
-        // Импорт
         struct {
             char* module;
             char* func;
             char* alias;
         } import;
         
-        // Директивы
         struct {
             char* name;
             char* value;
         } directive;
         
-        // Число
         struct {
             char* value;
         } number;
         
-        // Строка
         struct {
             char* value;
         } string;
         
-        // Идентификатор
         struct {
             char* name;
         } identifier;
         
-        // Ссылка на секцию (section:member)
         struct {
             char* section;
             char* member;
         } section_ref;
         
-        // Объявление переменной
         struct {
             VarType var_type;
             int is_locate;
@@ -97,46 +100,39 @@ typedef struct AstNode {
             struct AstNode* value;
         } variable;
         
-        // Присваивание
         struct {
             char* name;
             struct AstNode* value;
         } assign;
         
-        // Бинарная операция
         struct {
             OperatorType op;
             struct AstNode* left;
             struct AstNode* right;
         } binary;
         
-        // Унарная операция
         struct {
             OperatorType op;
             struct AstNode* expr;
         } unary;
         
-        // Вызов функции
         struct {
             char* name;
             struct AstNode** args;
             int arg_count;
         } call;
         
-        // If
         struct {
             struct AstNode* condition;
             struct AstNode* then_branch;
             struct AstNode* else_branch;
         } if_stmt;
         
-        // While
         struct {
             struct AstNode* condition;
             struct AstNode* body;
         } while_loop;
         
-        // For
         struct {
             struct AstNode* init;
             struct AstNode* condition;
@@ -144,7 +140,6 @@ typedef struct AstNode {
             struct AstNode* post;
         } for_loop;
         
-        // Функция
         struct {
             char* name;
             struct AstNode** params;
@@ -152,31 +147,26 @@ typedef struct AstNode {
             struct AstNode* body;
         } function;
         
-        // Блок
         struct {
             struct AstNode** statements;
             int count;
         } block;
         
-        // Return
         struct {
             struct AstNode** values;
             int count;
         } return_stmt;
         
-        // Секция (sect.name)
         struct {
             char* name;
             struct AstNode** variables;
             int var_count;
         } section;
         
-        // Ассемблерный блок
         struct {
             char* instructions;
         } asm_block;
         
-        // jmpto
         struct {
             char* filename;
             struct AstNode** vars;
@@ -184,31 +174,26 @@ typedef struct AstNode {
             struct AstNode* block;
         } jmpto;
         
-        // input
         struct {
             struct AstNode* prompt;
             struct AstNode* target;
         } input;
         
-        // mloc (обычное выделение)
         struct {
             struct AstNode* owner;
             struct AstNode* size;
             struct AstNode* align;
         } mloc;
         
-        // bmloc (выделение по физическому адресу)
         struct {
             struct AstNode* address;
             struct AstNode* size;
         } bmloc;
         
-        // mfree
         struct {
             struct AstNode* target;
         } mfree;
         
-        // inb/outb
         struct {
             struct AstNode* port;
         } inb;
@@ -218,9 +203,14 @@ typedef struct AstNode {
             struct AstNode* value;
         } outb;
         
-        // e820f - нет данных
+        struct {
+            char* name;
+            int version;
+            FieldInfo** fields;
+            int field_count;
+            int is_reflect;
+        } struct_def;
         
-        // Программа (корневой узел)
         struct {
             struct AstNode** items;
             int count;
@@ -259,5 +249,7 @@ AstNode* ast_create_inb(AstNode* port, int line, int column);
 AstNode* ast_create_outb(AstNode* port, AstNode* value, int line, int column);
 AstNode* ast_create_e820f(int line, int column);
 AstNode* ast_create_program(AstNode** items, int count, int line, int column);
+AstNode* ast_create_struct(char* name, int version, int is_reflect, int line, int column);
+void ast_struct_add_field(AstNode* struct_node, char* name, VarType type, int version_added, int version_removed);
 
 #endif

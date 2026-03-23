@@ -25,7 +25,7 @@ static int target_uefi = 0;
 static char* out_fmt = "elf";
 static int opt_level = 0;
 static int alloc_type = 0;
-static int verbose = 0;
+int verbose = 0;
 
 static void add_path(PathList* list, const char* path) {
     if (list->count >= list->cap) {
@@ -101,29 +101,12 @@ static int compile_one(const char* input, const char* output) {
         return 1;
     }
     
-    fprintf(out, "bits 64\n");
-    fprintf(out, "default rel\n\n");
-    
-    fprintf(out, "section .text\n");
-    
-    if (parser.safe_code == 1) {
-        fprintf(out, "    global _start\n");
-    }
-    
     target_x86_64.init();
     
     IRIns* ins = ir->head;
     while (ins) {
         target_x86_64.gen_ins(ins, ra, out);
         ins = ins->next;
-    }
-    
-    if (parser.safe_code == 1) {
-        fprintf(out, "\n_start:\n");
-        fprintf(out, "    call main\n");
-        fprintf(out, "    mov rdi, rax\n");
-        fprintf(out, "    mov rax, 60\n");
-        fprintf(out, "    syscall\n");
     }
     
     target_x86_64.finish(out);

@@ -5,6 +5,8 @@
 #include "lexer.h"
 #include "ast.h"
 
+extern int verbose;
+
 static char* parser_strdup(const char* s) {
     if (!s) return NULL;
     size_t len = strlen(s);
@@ -69,13 +71,12 @@ static VarType token_to_type(TokenType type) {
     }
 }
 
-/* Forward declarations */
 static AstNode* parse_expression(Parser* parser);
 static AstNode* parse_block(Parser* parser);
 static AstNode* parse_statement(Parser* parser);
 static AstNode* parse_import(Parser* parser);
+static AstNode* parse_struct(Parser* parser);
 
-/* Парсинг типа переменной */
 static VarType parse_type(Parser* parser, int* is_locate) {
     *is_locate = 0;
     
@@ -100,7 +101,6 @@ static VarType parse_type(Parser* parser, int* is_locate) {
     return type;
 }
 
-/* Парсинг lvalue (с поддержкой указателей) */
 static AstNode* parse_lvalue(Parser* parser) {
     int line = parser->current.line;
     int col = parser->current.column;
@@ -126,12 +126,11 @@ static AstNode* parse_lvalue(Parser* parser) {
     return ast_create_identifier(name, line, col);
 }
 
-/* Парсинг импорта */
 static AstNode* parse_import(Parser* parser) {
     int line = parser->current.line;
     int col = parser->current.column;
     
-    parser_advance(parser); // пропускаем #import
+    parser_advance(parser);
     
     char* module_name = NULL;
     char* func_name = NULL;
@@ -178,7 +177,6 @@ static AstNode* parse_import(Parser* parser) {
         parser_error(parser, "invalid import syntax");
     }
     
-    // Создаём специальный узел для импорта
     AstNode* node = malloc(sizeof(AstNode));
     node->type = NODE_IMPORT;
     node->line = line;
@@ -192,7 +190,6 @@ static AstNode* parse_import(Parser* parser) {
     return node;
 }
 
-/* Парсинг primary expression */
 static AstNode* parse_primary(Parser* parser) {
     int line = parser->current.line;
     int col = parser->current.column;
@@ -222,7 +219,6 @@ static AstNode* parse_primary(Parser* parser) {
     }
 }
 
-/* Парсинг вызова функции */
 static AstNode* parse_call(Parser* parser, AstNode* callee) {
     int line = parser->current.line;
     int col = parser->current.column;
@@ -267,7 +263,6 @@ static AstNode* parse_call(Parser* parser, AstNode* callee) {
     return ast_create_call(name, args, arg_count, line, col);
 }
 
-/* Преобразование токена в оператор */
 static OperatorType token_to_operator(TokenType type) {
     switch (type) {
         case TOK_PLUS: return OP_ADD;
@@ -288,7 +283,6 @@ static OperatorType token_to_operator(TokenType type) {
     }
 }
 
-/* Приоритет операторов */
 static int op_precedence(TokenType type) {
     switch (type) {
         case TOK_OR: return 5;
@@ -301,7 +295,6 @@ static int op_precedence(TokenType type) {
     }
 }
 
-/* Парсинг выражения */
 static AstNode* parse_expression(Parser* parser) {
     AstNode* left = parse_primary(parser);
     
@@ -341,7 +334,6 @@ static AstNode* parse_expression(Parser* parser) {
     return left;
 }
 
-/* Парсинг объявления переменной (с поддержкой указателей) */
 static AstNode* parse_variable_decl(Parser* parser) {
     int line = parser->current.line;
     int col = parser->current.column;
@@ -366,7 +358,6 @@ static AstNode* parse_variable_decl(Parser* parser) {
     return ast_create_variable(type, is_locate, name, init, line, col);
 }
 
-/* Парсинг return (поддержка множественных значений) */
 static AstNode* parse_return(Parser* parser) {
     int line = parser->current.line;
     int col = parser->current.column;
@@ -395,7 +386,6 @@ static AstNode* parse_return(Parser* parser) {
     return ast_create_return(values, count, line, col);
 }
 
-/* Парсинг встроенных функций (inb/inw/inl/outb/outw/outl) */
 static AstNode* parse_builtin(Parser* parser, TokenType type) {
     int line = parser->current.line;
     int col = parser->current.column;
@@ -406,12 +396,7 @@ static AstNode* parse_builtin(Parser* parser, TokenType type) {
     if (type == TOK_INB || type == TOK_INW || type == TOK_INL) {
         AstNode* port = parse_expression(parser);
         parser_consume(parser, TOK_RPAREN, ")");
-        
-        char* name;
-        if (type == TOK_INB) name = parser_strdup("inb");
-        else if (type == TOK_INW) name = parser_strdup("inw");
-        else name = parser_strdup("inl");
-        
+        char* name = parser_strdup(type == TOK_INB ? "inb" : type == TOK_INW ? "inw" : "inl");
         AstNode** args = malloc(sizeof(AstNode*));
         args[0] = port;
         return ast_create_call(name, args, 1, line, col);
@@ -422,23 +407,44 @@ static AstNode* parse_builtin(Parser* parser, TokenType type) {
         parser_consume(parser, TOK_COMMA, ",");
         AstNode* value = parse_expression(parser);
         parser_consume(parser, TOK_RPAREN, ")");
-        
-        char* name;
-        if (type == TOK_OUTB) name = parser_strdup("outb");
-        else if (type == TOK_OUTW) name = parser_strdup("outw");
-        else name = parser_strdup("outl");
-        
+        char* name = parser_strdup(type == TOK_OUTB ? "outb" : type == TOK_OUTW ? "outw" : "outl");
         AstNode** args = malloc(2 * sizeof(AstNode*));
         args[0] = port;
         args[1] = value;
         return ast_create_call(name, args, 2, line, col);
     }
     
+    if (type == TOK_MLOC) {
+        AstNode* owner = parse_expression(parser);
+        parser_consume(parser, TOK_COMMA, ",");
+        AstNode* size = parse_expression(parser);
+        parser_consume(parser, TOK_RPAREN, ")");
+        return ast_create_mloc(owner, size, NULL, line, col);
+    }
+    
+    if (type == TOK_BMLOC) {
+        AstNode* addr = parse_expression(parser);
+        parser_consume(parser, TOK_COMMA, ",");
+        AstNode* size = parse_expression(parser);
+        parser_consume(parser, TOK_RPAREN, ")");
+        return ast_create_bmloc(addr, size, line, col);
+    }
+    
+    if (type == TOK_MFREE) {
+        AstNode* target = parse_expression(parser);
+        parser_consume(parser, TOK_RPAREN, ")");
+        return ast_create_mfree(target, line, col);
+    }
+    
+    if (type == TOK_E820F) {
+        parser_consume(parser, TOK_RPAREN, ")");
+        return ast_create_e820f(line, col);
+    }
+    
     parser_error(parser, "unknown builtin function");
     return NULL;
 }
 
-/* Парсинг printf */
 static AstNode* parse_printf(Parser* parser) {
     int line = parser->current.line;
     int col = parser->current.column;
@@ -473,7 +479,6 @@ static AstNode* parse_printf(Parser* parser) {
     return ast_create_call(parser_strdup("printf"), args, arg_count, line, col);
 }
 
-/* Парсинг input */
 static AstNode* parse_input(Parser* parser) {
     int line = parser->current.line;
     int col = parser->current.column;
@@ -505,7 +510,6 @@ static AstNode* parse_input(Parser* parser) {
     return ast_create_input(prompt, target, line, col);
 }
 
-/* Парсинг jmpto (без кавычек) */
 static AstNode* parse_jmpto(Parser* parser) {
     int line = parser->current.line;
     int col = parser->current.column;
@@ -539,17 +543,78 @@ static AstNode* parse_jmpto(Parser* parser) {
     return ast_create_jmpto(filename, vars, var_count, NULL, line, col);
 }
 
-/* Парсинг оператора */
+static AstNode* parse_struct(Parser* parser) {
+    int line = parser->current.line;
+    int col = parser->current.column;
+    
+    parser_advance(parser);
+    
+    if (parser->current.type != TOK_IDENTIFIER) {
+        parser_error(parser, "expected struct name");
+    }
+    char* name = parser_strdup(parser->current.value);
+    parser_advance(parser);
+    
+    int version = 1;
+    if (parser->current.type == TOK_VERSION) {
+        version = atoi(parser->current.value);
+        parser_advance(parser);
+    }
+    
+    int is_reflect = 0;
+    if (parser->current.type == TOK_REFLECT) {
+        is_reflect = 1;
+        parser_advance(parser);
+    }
+    
+    parser_consume(parser, TOK_LBRACE, "{");
+    
+    AstNode* struct_node = ast_create_struct(name, version, is_reflect, line, col);
+    
+    while (parser->current.type != TOK_RBRACE && parser->current.type != TOK_EOF) {
+        int field_version_added = 1;
+        int field_version_removed = 0;
+        
+        if (parser->current.type == TOK_VERSION) {
+            field_version_added = atoi(parser->current.value);
+            parser_advance(parser);
+        }
+        
+        int is_locate = 0;
+        VarType type = parse_type(parser, &is_locate);
+        
+        if (parser->current.type != TOK_IDENTIFIER) {
+            parser_error(parser, "expected field name");
+        }
+        char* field_name = parser_strdup(parser->current.value);
+        parser_advance(parser);
+        
+        if (parser->current.type == TOK_LBRACKET) {
+            parser_advance(parser);
+            if (parser->current.type == TOK_NUMBER) {
+                parser_advance(parser);
+            }
+            parser_consume(parser, TOK_RBRACKET, "]");
+        }
+        
+        parser_consume(parser, TOK_SEMICOLON, ";");
+        
+        ast_struct_add_field(struct_node, field_name, type, field_version_added, field_version_removed);
+    }
+    
+    parser_consume(parser, TOK_RBRACE, "}");
+    
+    return struct_node;
+}
+
 static AstNode* parse_statement(Parser* parser) {
     int line = parser->current.line;
     int col = parser->current.column;
     
-    // Импорты
     if (parser->current.type == TOK_IMPORT) {
         return parse_import(parser);
     }
     
-    // Директивы
     if (parser->current.type == TOK_ADRLOAD) {
         parser_advance(parser);
         if (parser->current.type != TOK_NUMBER) {
@@ -570,7 +635,10 @@ static AstNode* parse_statement(Parser* parser) {
         return ast_create_directive(parser_strdup("bits"), bits, line, col);
     }
     
-    // Объявление переменной
+    if (parser->current.type == TOK_STRUCT) {
+        return parse_struct(parser);
+    }
+    
     if (parser->current.type == TOK_LOCATE ||
         parser->current.type == TOK_U8 || parser->current.type == TOK_U16 ||
         parser->current.type == TOK_U32 || parser->current.type == TOK_U64 ||
@@ -580,12 +648,10 @@ static AstNode* parse_statement(Parser* parser) {
         return parse_variable_decl(parser);
     }
     
-    // return
     if (parser->current.type == TOK_RETURN) {
         return parse_return(parser);
     }
     
-    // if
     if (parser->current.type == TOK_IF) {
         parser_advance(parser);
         parser_consume(parser, TOK_LPAREN, "(");
@@ -602,7 +668,6 @@ static AstNode* parse_statement(Parser* parser) {
         return ast_create_if(cond, then_branch, else_branch, line, col);
     }
     
-    // while
     if (parser->current.type == TOK_WHILE) {
         parser_advance(parser);
         parser_consume(parser, TOK_LPAREN, "(");
@@ -612,7 +677,6 @@ static AstNode* parse_statement(Parser* parser) {
         return ast_create_while(cond, body, line, col);
     }
     
-    // for
     if (parser->current.type == TOK_FOR) {
         parser_advance(parser);
         parser_consume(parser, TOK_LPAREN, "(");
@@ -639,46 +703,34 @@ static AstNode* parse_statement(Parser* parser) {
         return ast_create_for(init, cond, body, post, line, col);
     }
     
-    // jmpto
     if (parser->current.type == TOK_JMPTO) {
         return parse_jmpto(parser);
     }
     
-    // input
     if (parser->current.type == TOK_INPUT) {
         return parse_input(parser);
     }
     
-    // printf
     if (parser->current.type == TOK_PRINTF) {
         return parse_printf(parser);
     }
     
-    // Встроенные функции (inb/inw/inl/outb/outw/outl)
     if (parser->current.type == TOK_INB || parser->current.type == TOK_INW ||
         parser->current.type == TOK_INL || parser->current.type == TOK_OUTB ||
-        parser->current.type == TOK_OUTW || parser->current.type == TOK_OUTL) {
-        AstNode* expr = parse_builtin(parser, parser->current.type);
-        parser_consume(parser, TOK_SEMICOLON, ";");
-        return expr;
-    }
-    
-    // mloc/bmloc/mfree/e820f
-    if (parser->current.type == TOK_MLOC || parser->current.type == TOK_BMLOC ||
+        parser->current.type == TOK_OUTW || parser->current.type == TOK_OUTL ||
+        parser->current.type == TOK_MLOC || parser->current.type == TOK_BMLOC ||
         parser->current.type == TOK_MFREE || parser->current.type == TOK_E820F) {
         AstNode* expr = parse_builtin(parser, parser->current.type);
         parser_consume(parser, TOK_SEMICOLON, ";");
         return expr;
     }
     
-    // asm block
     if (parser->current.type == TOK_NASM_BLOCK) {
         char* instr = parser_strdup(parser->current.value);
         parser_advance(parser);
         return ast_create_asm_block(instr, line, col);
     }
     
-    // Выражение (может быть присваиванием)
     AstNode* expr = parse_expression(parser);
     
     if (parser->current.type == TOK_EQUALS) {
@@ -709,7 +761,6 @@ static AstNode* parse_statement(Parser* parser) {
     return expr;
 }
 
-/* Парсинг блока */
 static AstNode* parse_block(Parser* parser) {
     int line = parser->current.line;
     int col = parser->current.column;
@@ -730,12 +781,10 @@ static AstNode* parse_block(Parser* parser) {
     return ast_create_block(statements, count, line, col);
 }
 
-/* Парсинг функции */
 static AstNode* parse_function(Parser* parser) {
     int line = parser->current.line;
     int col = parser->current.column;
     
-    // Проверяем атрибуты
     int attr_baint = 0;
     int attr_bclear = 0;
     
@@ -796,7 +845,6 @@ static AstNode* parse_function(Parser* parser) {
     return func;
 }
 
-/* Парсинг секции */
 static AstNode* parse_section(Parser* parser) {
     int line = parser->current.line;
     int col = parser->current.column;
@@ -847,19 +895,16 @@ static AstNode* parse_section(Parser* parser) {
     return ast_create_section(name, vars, var_count, line, col);
 }
 
-/* Главная функция парсера */
 AstNode* parser_parse(Parser* parser) {
     if (parser->current.type == TOK_SC_FALSE) {
         parser->safe_code = 0;
-        printf("DEBUG: safe_code set to 0\n"); // ОТЛАДКА
+        if (verbose) printf("DEBUG: safe_code set to 0\n");
         parser_advance(parser);
     } else if (parser->current.type == TOK_SC_TRUE) {
         parser->safe_code = 1;
-        printf("DEBUG: safe_code set to 1\n"); // ОТЛАДКА
+        if (verbose) printf("DEBUG: safe_code set to 1\n");
         parser_advance(parser);
     } else {
-        printf("DEBUG: current token type = %d, value = %s\n", 
-               parser->current.type, parser->current.value); // ОТЛАДКА
         parser_error(parser, "file must start with sc.false or sc.true");
     }
     
@@ -873,6 +918,8 @@ AstNode* parser_parse(Parser* parser) {
             item = parse_import(parser);
         } else if (parser->current.type == TOK_SECT) {
             item = parse_section(parser);
+        } else if (parser->current.type == TOK_STRUCT) {
+            item = parse_struct(parser);
         } else if (parser->current.type == TOK_FN || 
                    parser->current.type == TOK_BAINT || 
                    parser->current.type == TOK_BCLEAR) {

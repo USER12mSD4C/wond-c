@@ -19,11 +19,27 @@ void ir_program_free(IRProgram* prog) {
     IRIns* ins = prog->head;
     while (ins) {
         IRIns* next = ins->next;
-        if (ins->var_name) platform_free(ins->var_name);
-        if (ins->module_name) platform_free(ins->module_name);
-        if (ins->string_val) platform_free(ins->string_val);
-        if (ins->section_var.section) platform_free(ins->section_var.section);
-        if (ins->section_var.var) platform_free(ins->section_var.var);
+        // Освобождаем только если память была выделена
+        if (ins->var_name) {
+            platform_free(ins->var_name);
+            ins->var_name = NULL;
+        }
+        if (ins->module_name) {
+            platform_free(ins->module_name);
+            ins->module_name = NULL;
+        }
+        if (ins->string_val) {
+            platform_free(ins->string_val);
+            ins->string_val = NULL;
+        }
+        if (ins->section_var.section) {
+            platform_free(ins->section_var.section);
+            ins->section_var.section = NULL;
+        }
+        if (ins->section_var.var) {
+            platform_free(ins->section_var.var);
+            ins->section_var.var = NULL;
+        }
         platform_free(ins);
         ins = next;
     }

@@ -4,6 +4,8 @@
 #include "ir_gen.h"
 #include "../platform.h"
 
+extern int verbose;
+
 typedef struct {
     IRProgram* prog;
     int safe_code;
@@ -20,6 +22,7 @@ typedef struct {
 } GenContext;
 
 static void add_global(GenContext* ctx, const char* name) {
+    // Проверяем, не добавлена ли уже
     for (int i = 0; i < ctx->global_count; i++) {
         if (strcmp(ctx->globals[i], name) == 0) return;
     }
@@ -196,7 +199,7 @@ static void gen_stmt(GenContext* ctx, AstNode* node) {
         case NODE_VARIABLE: {
             char var_name[256];
             snprintf(var_name, sizeof(var_name), "var_%s", node->data.variable.name);
-            add_global(ctx, var_name);
+            // НЕ вызываем add_global здесь, она уже добавлена
             
             if (node->data.variable.value) {
                 int temp = new_temp(ctx);
@@ -219,7 +222,7 @@ static void gen_stmt(GenContext* ctx, AstNode* node) {
             } else {
                 snprintf(var_name, sizeof(var_name), "var_%s", node->data.assign.name);
             }
-            add_global(ctx, var_name);
+            // НЕ вызываем add_global здесь
             
             int temp = new_temp(ctx);
             gen_expr(ctx, node->data.assign.value, temp);
@@ -429,7 +432,7 @@ static void gen_function(GenContext* ctx, AstNode* func) {
         if (param->type == NODE_VARIABLE) {
             char var_name[256];
             snprintf(var_name, sizeof(var_name), "var_%s", param->data.variable.name);
-            add_global(ctx, var_name);
+            // НЕ вызываем add_global здесь
             
             IRIns* param_ins = ir_ins_new(IR_PARAM);
             param_ins->src1 = i;
@@ -470,6 +473,27 @@ IRProgram* ir_generate(AstNode* ast, int safe_code, int alloc_type) {
     ctx.safe_code = safe_code;
     ctx.alloc_type = alloc_type;
     
+    // Сначала собираем все переменные, чтобы не дублировать
+    for (int i = 0; i < ast->data.program.count; i++) {
+        AstNode* item = ast->data.program.items[i];
+        if (item->type == NODE_VARIABLE) {
+            char var_name[256];
+            snprintf(var_name, sizeof(var_name), "var_%s", item->data.variable.name);
+            add_global(&ctx, var_name);
+        } else if (item->type == NODE_SECTION) {
+            for (int j = 0; j < item->data.section.var_count; j++) {
+                AstNode* var = item->data.section.variables[j];
+                if (var->type == NODE_VARIABLE) {
+                    char var_name[256];
+                    snprintf(var_name, sizeof(var_name), "sect_%s_%s", 
+                             item->data.section.name, var->data.variable.name);
+                    add_global(&ctx, var_name);
+                }
+            }
+        }
+    }
+    
+    // Генерируем код
     for (int i = 0; i < ast->data.program.count; i++) {
         AstNode* item = ast->data.program.items[i];
         if (item->type == NODE_VARIABLE) {
@@ -488,18 +512,23 @@ IRProgram* ir_generate(AstNode* ast, int safe_code, int alloc_type) {
         }
     }
     
-    // Добавляем глобальные переменные в IR для кодогенерации
+    if (verbose) {
+        fprintf(stderr, "DEBUG ir_generate: global_count=%d\n", ctx.global_count);
+        for (int i = 0; i < ctx.global_count; i++) {
+            fprintf(stderr, "  global[%d]: %s\n", i, ctx.globals[i]);
+        }
+    }
+    
+    // Добавляем IR_GLOBAL для всех переменных (только один раз!)
     for (int i = 0; i < ctx.global_count; i++) {
         char* name = ctx.globals[i];
         if (strncmp(name, "str_", 4) == 0) {
-            // строки уже обработаны
-        } else {
-            // объявляем переменные
-            IRIns* decl = ir_ins_new(IR_GLOBAL);
-            decl->var_name = platform_strdup(name);
-            decl->dest = -1;
-            ir_emit(ctx.prog, decl);
+            continue;
         }
+        IRIns* decl = ir_ins_new(IR_GLOBAL);
+        decl->var_name = platform_strdup(name);
+        decl->dest = -1;
+        ir_emit(ctx.prog, decl);
     }
     
     // Добавляем строки
@@ -512,15 +541,17 @@ IRProgram* ir_generate(AstNode* ast, int safe_code, int alloc_type) {
         ir_emit(ctx.prog, str_ins);
     }
     
-    // Освобождаем
+    // Очищаем временные данные
     for (int i = 0; i < ctx.global_count; i++) {
         platform_free(ctx.globals[i]);
     }
     if (ctx.globals) platform_free(ctx.globals);
+    
     for (int i = 0; i < ctx.string_count; i++) {
         platform_free(ctx.strings[i]);
     }
     if (ctx.strings) platform_free(ctx.strings);
+    
     if (ctx.temps) platform_free(ctx.temps);
     
     return ctx.prog;

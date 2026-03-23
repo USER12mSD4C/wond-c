@@ -78,13 +78,12 @@ Token lexer_next_token(Lexer* lexer) {
     int c = lexer_current(lexer);
     if (c == -1) return lexer_make_token(lexer, TOK_EOF, NULL, 0);
     
-    // Проверяем sc.false и sc.true в начале
     if (c == 's' && lexer->source[lexer->position + 1] == 'c' && 
         lexer->source[lexer->position + 2] == '.') {
         
-        lexer_advance(lexer); // s
-        lexer_advance(lexer); // c
-        lexer_advance(lexer); // .
+        lexer_advance(lexer);
+        lexer_advance(lexer);
+        lexer_advance(lexer);
         
         int start = lexer->position;
         while (isalpha(lexer_current(lexer))) {
@@ -93,19 +92,15 @@ Token lexer_next_token(Lexer* lexer) {
         int len = lexer->position - start;
         
         if (len == 5 && strncmp(lexer->source + start, "false", 5) == 0) {
-            printf("LEXER: found sc.false\n"); // ОТЛАДКА
             return lexer_make_token(lexer, TOK_SC_FALSE, "sc.false", 8);
         }
         if (len == 4 && strncmp(lexer->source + start, "true", 4) == 0) {
-            printf("LEXER: found sc.true\n"); // ОТЛАДКА
             return lexer_make_token(lexer, TOK_SC_TRUE, "sc.true", 7);
         }
         
-        // Если не sc.false/sc.true, возвращаемся
         lexer->position = start_pos;
     }
     
-    // Проверяем #import
     if (c == '#') {
         lexer_advance(lexer);
         int start = lexer->position;
@@ -118,16 +113,13 @@ Token lexer_next_token(Lexer* lexer) {
             return lexer_make_token(lexer, TOK_IMPORT, "#import", 7);
         }
         
-        // Если не import, возвращаемся
         lexer->position = start_pos;
     }
     
-    // Обработка чисел (десятичные и hex)
     if (isdigit(c) || (c == '0' && (lexer->source[lexer->position + 1] == 'x' || lexer->source[lexer->position + 1] == 'X'))) {
         if (c == '0' && (lexer->source[lexer->position + 1] == 'x' || lexer->source[lexer->position + 1] == 'X')) {
-            // Hex число
-            lexer_advance(lexer); // '0'
-            lexer_advance(lexer); // 'x'
+            lexer_advance(lexer);
+            lexer_advance(lexer);
             int hex_start = lexer->position;
             while (isxdigit(lexer_current(lexer))) {
                 lexer_advance(lexer);
@@ -144,7 +136,6 @@ Token lexer_next_token(Lexer* lexer) {
             free(hex_str);
             return tok;
         } else {
-            // Десятичное число
             while (isdigit(lexer_current(lexer))) {
                 lexer_advance(lexer);
             }
@@ -153,7 +144,6 @@ Token lexer_next_token(Lexer* lexer) {
         }
     }
     
-    // Строки
     if (c == '"') {
         lexer_advance(lexer);
         char* buf = malloc(4096);
@@ -206,7 +196,6 @@ Token lexer_next_token(Lexer* lexer) {
         return tok;
     }
     
-    // Ассемблерные блоки
     if (c == ':' && strncmp(lexer->source + start_pos, "::nasm::{", 9) == 0) {
         lexer->position += 9;
         lexer->column += 9;
@@ -232,7 +221,6 @@ Token lexer_next_token(Lexer* lexer) {
         return tok;
     }
     
-    // Идентификаторы и ключевые слова
     if (isalpha(c) || c == '_') {
         while (isalnum(lexer_current(lexer)) || lexer_current(lexer) == '_') {
             lexer_advance(lexer);
@@ -240,7 +228,6 @@ Token lexer_next_token(Lexer* lexer) {
         int len = lexer->position - start_pos;
         const char* text = lexer->source + start_pos;
         
-        // Ключевые слова
         if (len == 7 && memcmp(text, "adrload", 7) == 0) return lexer_make_token(lexer, TOK_ADRLOAD, "adrload", 7);
         if (len == 4 && memcmp(text, "bits", 4) == 0) return lexer_make_token(lexer, TOK_BITS, "bits", 4);
         if (len == 4 && memcmp(text, "sect", 4) == 0) return lexer_make_token(lexer, TOK_SECT, "sect", 4);
@@ -265,16 +252,10 @@ Token lexer_next_token(Lexer* lexer) {
         if (len == 4 && memcmp(text, "outw", 4) == 0) return lexer_make_token(lexer, TOK_OUTW, "outw", 4);
         if (len == 3 && memcmp(text, "inl", 3) == 0) return lexer_make_token(lexer, TOK_INL, "inl", 3);
         if (len == 4 && memcmp(text, "outl", 4) == 0) return lexer_make_token(lexer, TOK_OUTL, "outl", 4);
-        
-        // Импорты
         if (len == 4 && memcmp(text, "from", 4) == 0) return lexer_make_token(lexer, TOK_FROM, "from", 4);
         if (len == 2 && memcmp(text, "as", 2) == 0) return lexer_make_token(lexer, TOK_AS, "as", 2);
-        
-        // Атрибуты функций
         if (len == 5 && memcmp(text, "baint", 5) == 0) return lexer_make_token(lexer, TOK_BAINT, "baint", 5);
         if (len == 6 && memcmp(text, "bclear", 6) == 0) return lexer_make_token(lexer, TOK_BCLEAR, "bclear", 6);
-        
-        // Типы
         if (len == 2 && memcmp(text, "u8", 2) == 0) return lexer_make_token(lexer, TOK_U8, "u8", 2);
         if (len == 3 && memcmp(text, "u16", 3) == 0) return lexer_make_token(lexer, TOK_U16, "u16", 3);
         if (len == 3 && memcmp(text, "u32", 3) == 0) return lexer_make_token(lexer, TOK_U32, "u32", 3);
@@ -285,11 +266,11 @@ Token lexer_next_token(Lexer* lexer) {
         if (len == 3 && memcmp(text, "i64", 3) == 0) return lexer_make_token(lexer, TOK_I64, "i64", 3);
         if (len == 6 && memcmp(text, "string", 6) == 0) return lexer_make_token(lexer, TOK_STRING_TYPE, "string", 6);
         if (len == 6 && memcmp(text, "locate", 6) == 0) return lexer_make_token(lexer, TOK_LOCATE, "locate", 6);
+        if (len == 6 && memcmp(text, "struct", 6) == 0) return lexer_make_token(lexer, TOK_STRUCT, "struct", 6);
         
         return lexer_make_token(lexer, TOK_IDENTIFIER, text, len);
     }
     
-    // Операторы
     if (c == ';') { lexer_advance(lexer); return lexer_make_token(lexer, TOK_SEMICOLON, ";", 1); }
     if (c == '{') { lexer_advance(lexer); return lexer_make_token(lexer, TOK_LBRACE, "{", 1); }
     if (c == '}') { lexer_advance(lexer); return lexer_make_token(lexer, TOK_RBRACE, "}", 1); }
@@ -303,6 +284,8 @@ Token lexer_next_token(Lexer* lexer) {
     if (c == '*') { lexer_advance(lexer); return lexer_make_token(lexer, TOK_ASTERISK, "*", 1); }
     if (c == '/') { lexer_advance(lexer); return lexer_make_token(lexer, TOK_SLASH, "/", 1); }
     if (c == '%') { lexer_advance(lexer); return lexer_make_token(lexer, TOK_PERCENT, "%", 1); }
+    if (c == '[') { lexer_advance(lexer); return lexer_make_token(lexer, TOK_LBRACKET, "[", 1); }
+    if (c == ']') { lexer_advance(lexer); return lexer_make_token(lexer, TOK_RBRACKET, "]", 1); }
     
     if (c == '=') {
         if (lexer->source[lexer->position + 1] == '=') {

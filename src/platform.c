@@ -5,6 +5,8 @@
 #include <sys/stat.h>
 #include "platform.h"
 
+// verbose объявлен как extern в platform.h, не определяем его здесь
+
 void platform_init(void) {}
 void platform_cleanup(void) {}
 
@@ -73,7 +75,7 @@ int platform_assemble(const char* asm_file, const char* out,
                  "ld -m elf_x86_64 %s.obj -o %s --subsystem=efi_application",
                  asm_file, out, out, out);
     } else {
-        snprintf(cmd, sizeof(cmd), "nasm -f elf64 %s -o %s.o && ld %s.o -o %s",
+        snprintf(cmd, sizeof(cmd), "nasm -f elf64 %s -o %s.o && ld %s.o -o %s -lc -dynamic-linker /lib64/ld-linux-x86-64.so.2",
                  asm_file, out, out, out);
     }
     

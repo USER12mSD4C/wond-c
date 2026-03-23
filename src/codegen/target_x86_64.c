@@ -27,12 +27,18 @@ typedef struct CodeBuf {
 } CodeBuf;
 
 static CodeBuf code_buf;
+static int code_buf_initialized = 0;
 
 static void code_buf_init(void) {
+    if (code_buf_initialized && code_buf.data) {
+        platform_free(code_buf.data);
+        code_buf.data = NULL;
+    }
     code_buf.cap = 65536;
     code_buf.data = platform_malloc(code_buf.cap);
     code_buf.len = 0;
-    code_buf.data[0] = '\0';
+    code_buf_initialized = 1;
+    if (code_buf.data) code_buf.data[0] = '\0';
 }
 
 static void code_buf_append(const char* fmt, ...) {
@@ -53,23 +59,37 @@ static void code_buf_append(const char* fmt, ...) {
 }
 
 static void code_buf_free(void) {
-    if (code_buf.data) platform_free(code_buf.data);
-    code_buf.data = NULL;
+    if (code_buf.data) {
+        platform_free(code_buf.data);
+        code_buf.data = NULL;
+    }
     code_buf.len = 0;
     code_buf.cap = 0;
+    code_buf_initialized = 0;
 }
 
 static void add_var(const char* name, int has_init, const char* init_val) {
+    if (verbose) fprintf(stderr, "DEBUG add_var: name=%s, has_init=%d\n", name, has_init);
+    
+    // Ищем существующую переменную
     for (int i = 0; i < var_count; i++) {
         if (strcmp(vars[i].name, name) == 0) {
+            // Обновляем существующую
             if (has_init && !vars[i].has_init) {
                 vars[i].has_init = 1;
-                if (init_val) vars[i].init_val = platform_strdup(init_val);
+                if (init_val) {
+                    if (vars[i].init_val) {
+                        // Не освобождаем, просто заменяем
+                        platform_free(vars[i].init_val);
+                    }
+                    vars[i].init_val = platform_strdup(init_val);
+                }
             }
-            return;
+            return;  // Выходим, не добавляем новую
         }
     }
     
+    // Добавляем новую переменную
     if (var_count >= var_cap) {
         var_cap = var_cap ? var_cap * 2 : 64;
         vars = platform_realloc(vars, var_cap * sizeof(VarDecl));
@@ -77,24 +97,32 @@ static void add_var(const char* name, int has_init, const char* init_val) {
     
     vars[var_count].name = platform_strdup(name);
     vars[var_count].has_init = has_init;
-    vars[var_count].init_val = has_init && init_val ? platform_strdup(init_val) : NULL;
+    vars[var_count].init_val = (has_init && init_val) ? platform_strdup(init_val) : NULL;
     var_count++;
 }
 
-static void x86_64_init(void) {
+static void clear_vars(void) {
+    for (int i = 0; i < var_count; i++) {
+        if (vars[i].name) {
+            platform_free(vars[i].name);
+            vars[i].name = NULL;
+        }
+        if (vars[i].init_val) {
+            platform_free(vars[i].init_val);
+            vars[i].init_val = NULL;
+        }
+    }
+    if (vars) {
+        platform_free(vars);
+        vars = NULL;
+    }
     var_count = 0;
+    var_cap = 0;
+}
+
+static void x86_64_init(void) {
+    clear_vars();
     code_buf_init();
-}
-
-static void x86_64_prologue(void) {
-    code_buf_append("    push rbp\n");
-    code_buf_append("    mov rbp, rsp\n");
-    code_buf_append("    sub rsp, 32\n");
-}
-
-static void x86_64_epilogue(void) {
-    code_buf_append("    mov rsp, rbp\n");
-    code_buf_append("    pop rbp\n");
 }
 
 static void x86_64_gen_ins(IRIns* ins, LinearRegAlloc* ra, FILE* out) {
@@ -107,20 +135,19 @@ static void x86_64_gen_ins(IRIns* ins, LinearRegAlloc* ra, FILE* out) {
         }
         
         case IR_GLOBAL: {
-            add_var(ins->var_name, 0, NULL);
-            
-            if (ins->dest == -1) {
-                break;
-            }
-            
-            int reg = linear_get_reg(ra, ins->dest);
-            if (reg >= 0) {
-                code_buf_append("    mov %s, [rel %s]\n", x86_64_regs[reg], ins->var_name);
-            } else {
-                int spill = linear_get_spill(ra, ins->dest);
-                if (spill >= 0) {
-                    code_buf_append("    mov rax, [rel %s]\n", ins->var_name);
-                    code_buf_append("    mov [rbp-%d], rax\n", (spill+1)*8);
+            if (ins->var_name && ins->dest == -1) {
+                add_var(ins->var_name, 0, NULL);
+            } else if (ins->var_name && ins->dest >= 0) {
+                add_var(ins->var_name, 0, NULL);
+                int reg = linear_get_reg(ra, ins->dest);
+                if (reg >= 0) {
+                    code_buf_append("    mov %s, [rel %s]\n", x86_64_regs[reg], ins->var_name);
+                } else {
+                    int spill = linear_get_spill(ra, ins->dest);
+                    if (spill >= 0) {
+                        code_buf_append("    mov rax, [rel %s]\n", ins->var_name);
+                        code_buf_append("    mov [rbp-%d], rax\n", (spill+1)*8);
+                    }
                 }
             }
             break;
@@ -402,6 +429,12 @@ static void x86_64_gen_ins(IRIns* ins, LinearRegAlloc* ra, FILE* out) {
         
         case IR_CALL: {
             code_buf_append("    call %s\n", ins->var_name);
+            if (ins->dest >= 0) {
+                int dest_reg = linear_get_reg(ra, ins->dest);
+                if (dest_reg >= 0 && dest_reg != 0) {
+                    code_buf_append("    mov %s, rax\n", x86_64_regs[dest_reg]);
+                }
+            }
             break;
         }
         
@@ -409,7 +442,9 @@ static void x86_64_gen_ins(IRIns* ins, LinearRegAlloc* ra, FILE* out) {
             if (ins->src1 >= 0) {
                 int src_reg = linear_get_reg(ra, ins->src1);
                 if (src_reg >= 0) {
-                    code_buf_append("    mov rax, %s\n", x86_64_regs[src_reg]);
+                    if (src_reg != 0) {
+                        code_buf_append("    mov rax, %s\n", x86_64_regs[src_reg]);
+                    }
                 } else {
                     int spill = linear_get_spill(ra, ins->src1);
                     if (spill >= 0) {
@@ -434,11 +469,6 @@ static void x86_64_gen_ins(IRIns* ins, LinearRegAlloc* ra, FILE* out) {
                     default: break;
                 }
             }
-            break;
-        }
-        
-        case IR_MODULE_CALL: {
-            code_buf_append("    call module_entry\n");
             break;
         }
         
@@ -469,11 +499,6 @@ static void x86_64_gen_ins(IRIns* ins, LinearRegAlloc* ra, FILE* out) {
         default:
             break;
     }
-}
-
-static void x86_64_gen_label(int label, FILE* out) {
-    (void)label;
-    (void)out;
 }
 
 static void x86_64_finish(FILE* out) {
@@ -514,37 +539,19 @@ static void x86_64_finish(FILE* out) {
     fprintf(out, "\n");
     
     fprintf(out, "section .text\n");
-    fprintf(out, "%s", code_buf.data);
+    fprintf(out, "    global _start\n");
+    fprintf(out, "    extern main\n\n");
+    
+    fprintf(out, "_start:\n");
+    fprintf(out, "    call main\n");
+    fprintf(out, "    mov rdi, rax\n");
+    fprintf(out, "    mov rax, 60\n");
+    fprintf(out, "    syscall\n\n");
+    
+    fprintf(out, "%s", code_buf.data ? code_buf.data : "");
     
     code_buf_free();
-    for (int i = 0; i < var_count; i++) {
-        platform_free(vars[i].name);
-        if (vars[i].init_val) platform_free(vars[i].init_val);
-    }
-    platform_free(vars);
-    vars = NULL;
-    var_count = var_cap = 0;
-}
-
-static void x86_64_gen_global(const char* name, int size, const char* init, FILE* out) {
-    (void)name;
-    (void)size;
-    (void)init;
-    (void)out;
-}
-
-static void x86_64_gen_section_global(const char* section, const char* name, int size, const char* init, FILE* out) {
-    (void)section;
-    (void)name;
-    (void)size;
-    (void)init;
-    (void)out;
-}
-
-static void x86_64_gen_string(const char* str, int label, FILE* out) {
-    (void)str;
-    (void)label;
-    (void)out;
+    clear_vars();
 }
 
 Target target_x86_64 = {
@@ -552,12 +559,12 @@ Target target_x86_64 = {
     .reg_count = 16,
     .reg_names = x86_64_regs,
     .init = x86_64_init,
-    .prologue = x86_64_prologue,
-    .epilogue = x86_64_epilogue,
+    .prologue = NULL,
+    .epilogue = NULL,
     .gen_ins = x86_64_gen_ins,
-    .gen_label = x86_64_gen_label,
+    .gen_label = NULL,
     .finish = x86_64_finish,
-    .gen_global = x86_64_gen_global,
-    .gen_section_global = x86_64_gen_section_global,
-    .gen_string = x86_64_gen_string
+    .gen_global = NULL,
+    .gen_section_global = NULL,
+    .gen_string = NULL
 };

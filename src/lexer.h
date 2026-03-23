@@ -3,20 +3,16 @@
 #include <stdio.h>
 
 typedef enum {
-    // Специальные токены
     TOK_EOF,
     TOK_ERROR,
     
-    // Режимы безопасности
     TOK_SC_FALSE,
     TOK_SC_TRUE,
     
-    // Директивы
     TOK_ADRLOAD,
     TOK_BITS,
     TOK_SECTION,
     
-    // Ключевые слова
     TOK_SECT,
     TOK_EOS,
     TOK_FN,
@@ -40,53 +36,53 @@ typedef enum {
     TOK_INL,
     TOK_OUTL,
     
-    // Импорты
     TOK_IMPORT,
     TOK_FROM,
     TOK_AS,
     
-    // Атрибуты функций
     TOK_BAINT,
     TOK_BCLEAR,
     
-    // Ассемблерные блоки
     TOK_NASM_BLOCK,
     
-    // Типы
     TOK_U8, TOK_U16, TOK_U32, TOK_U64,
     TOK_I8, TOK_I16, TOK_I32, TOK_I64,
     TOK_STRING_TYPE,
     TOK_LOCATE,
     
-    // Литералы
     TOK_IDENTIFIER,
     TOK_NUMBER,
     TOK_STRING,
     
-    // Операторы и пунктуация
-    TOK_SEMICOLON,      // ;
-    TOK_LBRACE,         // {
-    TOK_RBRACE,         // }
-    TOK_LPAREN,         // (
-    TOK_RPAREN,         // )
-    TOK_COLON,          // :
-    TOK_COMMA,          // ,
-    TOK_DOT,            // .
-    TOK_PLUS,           // +
-    TOK_MINUS,          // -
-    TOK_ASTERISK,       // *
-    TOK_SLASH,          // /
-    TOK_PERCENT,        // %
-    TOK_EQUALS,         // =
-    TOK_EQ,             // ==
-    TOK_NE,             // !=
-    TOK_LT,             // <
-    TOK_LE,             // <=
-    TOK_GT,             // >
-    TOK_GE,             // >=
-    TOK_AND,            // &&
-    TOK_OR,             // ||
-    TOK_NOT             // !
+    TOK_SEMICOLON,
+    TOK_LBRACE,
+    TOK_RBRACE,
+    TOK_LPAREN,
+    TOK_RPAREN,
+    TOK_COLON,
+    TOK_COMMA,
+    TOK_DOT,
+    TOK_PLUS,
+    TOK_MINUS,
+    TOK_ASTERISK,
+    TOK_SLASH,
+    TOK_PERCENT,
+    TOK_EQUALS,
+    TOK_EQ,
+    TOK_NE,
+    TOK_LT,
+    TOK_LE,
+    TOK_GT,
+    TOK_GE,
+    TOK_AND,
+    TOK_OR,
+    TOK_NOT,
+    
+    TOK_STRUCT,
+    TOK_VERSION,
+    TOK_REFLECT,
+    TOK_LBRACKET,
+    TOK_RBRACKET
 } TokenType;
 
 typedef struct {

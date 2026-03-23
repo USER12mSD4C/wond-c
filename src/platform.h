@@ -1,6 +1,8 @@
 #ifndef PLATFORM_H
 #define PLATFORM_H
 
+extern int verbose;
+
 void platform_init(void);
 void platform_cleanup(void);
 

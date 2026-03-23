@@ -154,7 +154,15 @@ void ast_free(AstNode* node) {
             break;
             
         case NODE_E820F:
-            // Ничего не освобождать
+            break;
+            
+        case NODE_STRUCT:
+            free(node->data.struct_def.name);
+            for (int i = 0; i < node->data.struct_def.field_count; i++) {
+                free(node->data.struct_def.fields[i]->name);
+                free(node->data.struct_def.fields[i]);
+            }
+            free(node->data.struct_def.fields);
             break;
             
         case NODE_PROGRAM:
@@ -497,7 +505,6 @@ AstNode* ast_create_e820f(int line, int column) {
     node->column = column;
     node->attr_baint = 0;
     node->attr_bclear = 0;
-    // Нет данных
     return node;
 }
 
@@ -511,4 +518,40 @@ AstNode* ast_create_program(AstNode** items, int count, int line, int column) {
     node->data.program.items = items;
     node->data.program.count = count;
     return node;
+}
+
+AstNode* ast_create_struct(char* name, int version, int is_reflect, int line, int column) {
+    AstNode* node = malloc(sizeof(AstNode));
+    node->type = NODE_STRUCT;
+    node->line = line;
+    node->column = column;
+    node->attr_baint = 0;
+    node->attr_bclear = 0;
+    node->data.struct_def.name = name;
+    node->data.struct_def.version = version;
+    node->data.struct_def.fields = NULL;
+    node->data.struct_def.field_count = 0;
+    node->data.struct_def.is_reflect = is_reflect;
+    return node;
+}
+
+void ast_struct_add_field(AstNode* struct_node, char* name, VarType type, 
+                          int version_added, int version_removed) {
+    if (!struct_node || struct_node->type != NODE_STRUCT) return;
+    
+    int count = struct_node->data.struct_def.field_count;
+    struct_node->data.struct_def.fields = realloc(
+        struct_node->data.struct_def.fields,
+        (count + 1) * sizeof(FieldInfo*)
+    );
+    
+    FieldInfo* field = malloc(sizeof(FieldInfo));
+    field->name = name;
+    field->type = type;
+    field->version_added = version_added;
+    field->version_removed = version_removed;
+    field->offset = 0;
+    
+    struct_node->data.struct_def.fields[count] = field;
+    struct_node->data.struct_def.field_count++;
 }
