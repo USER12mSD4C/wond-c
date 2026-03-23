@@ -1,0 +1,36 @@
+CC = gcc
+CFLAGS = -Wall -Wextra -O2 -Isrc
+SRCS = src/wandc.c src/preproc.c src/platform.c src/lexer.c src/parser.c src/ast.c src/codegen/ir.c src/codegen/ir_gen.c src/codegen/regalloc_linear.c src/codegen/target_x86_64.c
+
+all:
+    $(CC) $(CFLAGS) -o wandc $(SRCS)
+eoc
+
+build:
+    call all
+    echo "=== BUILD COMPLETE ==="
+    +flags:
+        -fg(clean):
+            call clean
+            call all
+        eofg
+    ;
+eoc
+
+clean:
+    rm -f wandc
+eoc
+
+install: wandc
+    install -Dm755 wandc /usr/local/bin/wandc
+    echo "Installed to /usr/local/bin/wandc"
+eoc
+
+uninstall:
+    rm -f /usr/local/bin/wandc
+    echo "Uninstalled"
+eoc
+
+test: wandc
+    ./wandc -h
+eoc

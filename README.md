@@ -1,110 +1,46 @@
-# UTMS Compiler
-
-**Copyright (c) 2026 The UOPL Authors**
-
-Low-level compiler that translates custom UTMS syntax into NASM assembly.
-Targets: raw binary, ELF, UEFI.
-
-reddit: r/utms_compiler
-
-## ⚠️ Project status
-
-**Under active development. Not stable at all.**
-
-currently even basic functional doesnt tested propperly, it contains a lot of bugs.
-
-i DONT recommend using it
-
-- tested only with arch linux
-
-## Features
-
-- bare metal mode (`sc.false`) and in-OS mode (`sc.true`)
-- sections (`sect.name`)
-- global variables
-- functions with parameters and return values
-- `if` / `else` / `while` / `for`
-- inline NASM and C (`::C::{}` ; `::nasm::{}`)
-- memory management: `mloc`, `bmloc`, `mfree`, `e820f`
-- I/O ports: `inb` / `outb`
-- `jmpto` for modules/extensions call
-
-## Building
-
 ```
-#make everything
-make
-#install command "utmc"
-sudo make install
+WandC — UTMS Compiler
+
+Copyright (c) 2026 The UOPL Authors
 ```
 
-## Usage
+Portable compiler for UTMS language.
+
+== Quick Start ==
 
 ```
-utmc {filename.utms} {output_binary_name}
+umk build
+./wandc test.w test
 ```
 
-## multi-file
+== File Extensions ==
 
-**utl linker file**
-```
-//listname.utl
--raw
+  .w      - main source
+  .wlink  - project file
+  .wexp   - extension module
+  .wlib   - library
 
-main.utms
-hashsum.utm
-```
-**utms main file**
+== Example ==
 
 ```
-//main.utms
+// hello.w
 sc.true
 
 fn main() {
-    u64 locate buf = mloc(16);
-    
-    ::nasm::{
-        mov rax, [buf]
-        mov byte [rax],   1
-        mov byte [rax+1], 2
-        mov byte [rax+2], 3
-        mov byte [rax+3], 4
-    }
-    
-    u64 hash;
-    jmpto "hashsum" {
-        u64 data = buf;
-        u64 len  = 4;
-        hash = return;
-    }
-    
-    printf("hash = %v\n", hash);  // 1 xor 2 xor 3 xor 4 = 4
-    
-    mfree(buf);
+    printf("Hello, World!\n");
 }
 ```
-**utm extension file (module)**
-```
-//hashsum.utm
-fn hashsum_entry(u64 data_ptr, u64 length) {
-    u64 result = 0;
-    u64 locate ptr = data_ptr;
-    
-    for (u64 i = 0; i < length; i = i + 1) {
-        ::nasm::{
-            mov rax, [ptr]
-            add rax, [i]
-            movzx rbx, byte [rax]
-            xor [result], rbx
-        }
-    }
-    
-    return u64 result;
-}
-```
-**usage (how to compile it)**
-```
-utmc listname.utl hashsum_2
-```
-##
 
+== Build System ==
+
+Use UMK (included):
+
+```
+umk build      # compile
+umk clean      # clean
+sudo umk install
+```
+
+== License ==
+
+UOPL v1.6.2
