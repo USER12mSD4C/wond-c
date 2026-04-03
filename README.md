@@ -31,6 +31,10 @@ fn main() {
 }
 ```
 
+`printf` supports `%v` as a generic value placeholder:
+- string arguments -> `%s`
+- other arguments -> `%lld`
+
 == Build System ==
 
 Use UMK (included):
@@ -39,6 +43,25 @@ Use UMK (included):
 umk build      # compile
 umk clean      # clean
 sudo umk install
+```
+
+== Target Profiles ==
+
+Compiler auto-loads `targets/default.wtarget` (or `default.wtarget` from lookup paths).
+
+```
+./wandc test.w test
+./wandc --target=raw test.w test.bin
+./wandc --target=linux_x86_64 test.w test
+./wandc --target=targets/default.wtarget test.w test
+```
+
+`jmpto` can call `.wexp` modules directly:
+
+```
+jmpto test_e.wexp{
+    abc;
+}
 ```
 
 == License ==

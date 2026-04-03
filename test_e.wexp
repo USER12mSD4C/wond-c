@@ -1,0 +1,9 @@
+sc.true
+
+u64 aht;
+
+fn main() {
+    printf("[module]: abc = %v\n", abc);
+    aht = abc + 15;
+    return aht;
+}

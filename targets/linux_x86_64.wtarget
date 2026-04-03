@@ -1,0 +1,19 @@
+name = linux_x86_64
+bits = 64
+format = elf
+nasm_format = elf64
+
+# Commands support placeholders:
+# {asm} {obj} {out} {fmt} {nasm_format} {safe}
+assembler = nasm -f {nasm_format} {asm} -o {obj}
+linker = if [ "{safe}" = "1" ]; then gcc -no-pie {obj} -o {out}; else ld {obj} -o {out} -lc -dynamic-linker /lib64/ld-linux-x86-64.so.2; fi
+
+# Optional ABI/ASM overrides
+abi.ret = rax
+abi.arg0 = rdi
+abi.arg1 = rsi
+abi.arg2 = rdx
+abi.arg3 = rcx
+abi.arg4 = r8
+abi.arg5 = r9
+asm.label_prefix = .L
