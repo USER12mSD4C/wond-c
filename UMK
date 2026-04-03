@@ -1,9 +1,11 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -O2 -Isrc
-SRCS = src/wandc.c src/preproc.c src/platform.c src/lexer.c src/parser.c src/ast.c src/codegen/ir.c src/codegen/ir_gen.c src/codegen/optimizer.c src/codegen/regalloc_linear.c src/codegen/asm_gen.c
+SRCS = src/wandc.c src/preproc.c src/platform.c src/lexer.c src/parser.c src/ast.c src/target_spec.c src/codegen/ir.c src/codegen/ir_gen.c src/codegen/optimizer.c src/codegen/regalloc_linear.c src/codegen/asm_gen.c
+BIN = wandc
+PREFIX = /usr/local/bin
 
 all:
-	$(CC) $(CFLAGS) -o wandc $(SRCS)
+	$(CC) $(CFLAGS) -o $(BIN) $(SRCS)
 eoc
 
 build:
@@ -18,19 +20,28 @@ build:
 eoc
 
 clean:
-	rm -f wandc test test.asm
+	rm -f $(BIN) test test_printf test_link
+	rm -f *.main.asm *.main.o *.mod*.asm *.mod*.o
+	rm -f test*.asm test*.o test*.obj
+	rm -f core core.* *.core
 eoc
 
-install: wandc
-	install -Dm755 wandc /usr/local/bin/wandc
-	echo "Installed to /usr/local/bin/wandc"
+install:
+	call all
+	install -Dm755 $(BIN) $(PREFIX)/$(BIN)
+	echo "Installed to $(PREFIX)/$(BIN)"
 eoc
 
 uninstall:
-	rm -f /usr/local/bin/wandc
-	echo "Uninstalled"
+	rm -f $(PREFIX)/$(BIN)
+	echo "Uninstalled $(PREFIX)/$(BIN)"
 eoc
 
-test: wandc
-	./wandc -h
+test:
+	call all
+	./$(BIN) test.w test
+	./test
+	./$(BIN) test_printf.w test_printf
+	./test_printf
+	echo "=== TESTS OK ==="
 eoc
