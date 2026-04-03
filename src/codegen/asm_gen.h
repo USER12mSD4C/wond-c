@@ -4,6 +4,7 @@
 #include "../ast.h"
 #include "ir.h"
 #include "regalloc_linear.h"
+#include "../target_spec.h"
 
 typedef struct {
     FILE* out;
@@ -14,6 +15,7 @@ typedef struct {
 } AsmContext;
 
 void asm_gen_init(AsmContext* ctx, const char* filename, int bits, int safe_code, int optimize);
+void asm_gen_set_target(const TargetSpec* spec);
 void asm_gen_program(AsmContext* ctx, IRProgram* prog, LinearRegAlloc* ra);
 void asm_gen_finish(AsmContext* ctx);
 

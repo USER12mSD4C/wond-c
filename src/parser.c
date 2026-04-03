@@ -15,6 +15,58 @@ static char* parser_strdup(const char* s) {
     return d;
 }
 
+static const char* v_spec_for_arg(AstNode* arg) {
+    if (!arg) return "%lld";
+    if (arg->type == NODE_STRING) return "%s";
+    return "%lld";
+}
+
+static char* normalize_printf_format(const char* fmt, AstNode** args, int arg_count) {
+    size_t in_len;
+    size_t i;
+    size_t out_pos;
+    int v_index;
+    char* out;
+
+    if (!fmt) return parser_strdup("");
+
+    in_len = strlen(fmt);
+    out = malloc(in_len * 4 + 1);
+    if (!out) {
+        fprintf(stderr, "Out of memory\n");
+        exit(1);
+    }
+
+    out_pos = 0;
+    v_index = 0;
+    for (i = 0; i < in_len; i++) {
+        if (fmt[i] == '%' && i + 1 < in_len) {
+            if (fmt[i + 1] == '%') {
+                out[out_pos++] = '%';
+                out[out_pos++] = '%';
+                i++;
+                continue;
+            }
+            if (fmt[i + 1] == 'v') {
+                const char* spec = "%lld";
+                size_t spec_len;
+                if (v_index < arg_count) {
+                    spec = v_spec_for_arg(args[v_index]);
+                }
+                spec_len = strlen(spec);
+                memcpy(out + out_pos, spec, spec_len);
+                out_pos += spec_len;
+                v_index++;
+                i++;
+                continue;
+            }
+        }
+        out[out_pos++] = fmt[i];
+    }
+    out[out_pos] = '\0';
+    return out;
+}
+
 static void* safe_realloc(void* ptr, size_t size) {
     void* new_ptr = realloc(ptr, size);
     if (!new_ptr) {
@@ -296,43 +348,44 @@ static int op_precedence(TokenType type) {
     }
 }
 
-static AstNode* parse_expression(Parser* parser) {
-    AstNode* left = parse_primary(parser);
-    
-    while (parser->current.type == TOK_LPAREN) {
-        left = parse_call(parser, left);
-    }
-    
+static AstNode* parse_unary(Parser* parser) {
     if (parser->current.type == TOK_NOT || parser->current.type == TOK_MINUS) {
         int line = parser->current.line;
         int col = parser->current.column;
         OperatorType op = token_to_operator(parser->current.type);
         parser_advance(parser);
-        AstNode* expr = parse_expression(parser);
+        AstNode* expr = parse_unary(parser);
         return ast_create_unary_op(op, expr, line, col);
     }
-    
+
+    AstNode* node = parse_primary(parser);
+    while (parser->current.type == TOK_LPAREN) {
+        node = parse_call(parser, node);
+    }
+    return node;
+}
+
+static AstNode* parse_expression_prec(Parser* parser, int min_prec) {
+    AstNode* left = parse_unary(parser);
+
     while (1) {
         int prec = op_precedence(parser->current.type);
-        if (prec == 0) break;
-        
+        if (prec == 0 || prec < min_prec) break;
+
         TokenType op_type = parser->current.type;
+        int line = parser->current.line;
+        int col = parser->current.column;
         parser_advance(parser);
-        
-        AstNode* right = parse_primary(parser);
-        while (parser->current.type == TOK_LPAREN) {
-            right = parse_call(parser, right);
-        }
-        
-        while (op_precedence(parser->current.type) > prec) {
-            right = parse_expression(parser);
-        }
-        
-        left = ast_create_binary_op(token_to_operator(op_type), left, right,
-                                   parser->current.line, parser->current.column);
+
+        AstNode* right = parse_expression_prec(parser, prec + 1);
+        left = ast_create_binary_op(token_to_operator(op_type), left, right, line, col);
     }
-    
+
     return left;
+}
+
+static AstNode* parse_expression(Parser* parser) {
+    return parse_expression_prec(parser, 1);
 }
 
 static AstNode* parse_variable_decl(Parser* parser) {
@@ -359,6 +412,7 @@ static AstNode* parse_variable_decl(Parser* parser) {
         }
         parser_consume(parser, TOK_RBRACKET, "]");
     }
+    (void)array_size;
     
     AstNode* init = NULL;
     if (parser->current.type == TOK_EQUALS) {
@@ -460,6 +514,13 @@ static AstNode* parse_builtin(Parser* parser, TokenType type) {
 static AstNode* parse_printf(Parser* parser) {
     int line = parser->current.line;
     int col = parser->current.column;
+    char* raw_format;
+    char* format;
+    AstNode* format_node;
+    AstNode** vargs = NULL;
+    int varg_count = 0;
+    AstNode** args = NULL;
+    int arg_count;
     
     parser_advance(parser);
     parser_consume(parser, TOK_LPAREN, "(");
@@ -467,23 +528,28 @@ static AstNode* parse_printf(Parser* parser) {
     if (parser->current.type != TOK_STRING) {
         parser_error(parser, "printf requires format string");
     }
-    
-    char* format = parser_strdup(parser->current.value);
-    AstNode* format_node = ast_create_string(format, line, col);
+
+    raw_format = parser_strdup(parser->current.value);
     parser_advance(parser);
-    
-    AstNode** args = NULL;
-    int arg_count = 1;
-    args = malloc(sizeof(AstNode*));
-    args[0] = format_node;
     
     while (parser->current.type == TOK_COMMA) {
         parser_advance(parser);
-        AstNode* arg = parse_expression(parser);
-        arg_count++;
-        args = safe_realloc(args, arg_count * sizeof(AstNode*));
-        args[arg_count - 1] = arg;
+        varg_count++;
+        vargs = safe_realloc(vargs, varg_count * sizeof(AstNode*));
+        vargs[varg_count - 1] = parse_expression(parser);
     }
+
+    format = normalize_printf_format(raw_format, vargs, varg_count);
+    free(raw_format);
+    format_node = ast_create_string(format, line, col);
+
+    arg_count = varg_count + 1;
+    args = malloc(arg_count * sizeof(AstNode*));
+    args[0] = format_node;
+    for (int i = 0; i < varg_count; i++) {
+        args[i + 1] = vargs[i];
+    }
+    if (vargs) free(vargs);
     
     parser_consume(parser, TOK_RPAREN, ")");
     parser_consume(parser, TOK_SEMICOLON, ";");
@@ -522,17 +588,56 @@ static AstNode* parse_input(Parser* parser) {
     return ast_create_input(prompt, target, line, col);
 }
 
+static int is_jmpto_name_token(TokenType t) {
+    return t == TOK_IDENTIFIER || t == TOK_NUMBER || t == TOK_DOT ||
+           t == TOK_SLASH || t == TOK_MINUS;
+}
+
 static AstNode* parse_jmpto(Parser* parser) {
     int line = parser->current.line;
     int col = parser->current.column;
+    char* filename;
+    size_t cap;
+    size_t len;
     
     parser_advance(parser);
-    
-    if (parser->current.type != TOK_IDENTIFIER) {
-        parser_error(parser, "expected module name");
+
+    if (parser->current.type == TOK_STRING) {
+        filename = parser_strdup(parser->current.value);
+        parser_advance(parser);
+    } else {
+        cap = 128;
+        len = 0;
+        filename = malloc(cap);
+        if (!filename) {
+            fprintf(stderr, "Out of memory\n");
+            exit(1);
+        }
+        filename[0] = '\0';
+
+        while (is_jmpto_name_token(parser->current.type)) {
+            const char* part = NULL;
+            if (parser->current.type == TOK_DOT) part = ".";
+            else if (parser->current.type == TOK_SLASH) part = "/";
+            else if (parser->current.type == TOK_MINUS) part = "-";
+            else part = parser->current.value ? parser->current.value : "";
+
+            size_t p = strlen(part);
+            while (len + p + 1 > cap) {
+                cap *= 2;
+                filename = safe_realloc(filename, cap);
+            }
+            memcpy(filename + len, part, p);
+            len += p;
+            filename[len] = '\0';
+            parser_advance(parser);
+        }
+
+        if (len == 0) {
+            free(filename);
+            parser_error(parser, "expected module name");
+        }
     }
-    char* filename = parser_strdup(parser->current.value);
-    parser_advance(parser);
     
     AstNode** vars = NULL;
     int var_count = 0;

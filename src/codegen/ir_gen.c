@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include "ir_gen.h"
 #include "../platform.h"
 
@@ -16,6 +17,9 @@ typedef struct {
     char** globals;
     int global_count;
     int global_cap;
+    char** global_defs;
+    int global_def_count;
+    int global_def_cap;
     char** strings;
     int string_count;
     int string_cap;
@@ -31,6 +35,18 @@ static void add_global(GenContext* ctx, const char* name) {
         ctx->globals = platform_realloc(ctx->globals, ctx->global_cap * sizeof(char*));
     }
     ctx->globals[ctx->global_count++] = platform_strdup(name);
+}
+
+static void add_global_def(GenContext* ctx, const char* name) {
+    for (int i = 0; i < ctx->global_def_count; i++) {
+        if (strcmp(ctx->global_defs[i], name) == 0) return;
+    }
+    if (ctx->global_def_count >= ctx->global_def_cap) {
+        ctx->global_def_cap = ctx->global_def_cap ? ctx->global_def_cap * 2 : 64;
+        ctx->global_defs = platform_realloc(ctx->global_defs, ctx->global_def_cap * sizeof(char*));
+    }
+    ctx->global_defs[ctx->global_def_count++] = platform_strdup(name);
+    add_global(ctx, name);
 }
 
 static int add_string(GenContext* ctx, const char* str) {
@@ -56,6 +72,23 @@ static int new_temp(GenContext* ctx) {
     return idx;
 }
 
+static void module_entry_name(const char* module_name, char* out, size_t out_sz) {
+    size_t pos;
+    if (!module_name || !*module_name) {
+        snprintf(out, out_sz, "__jmpto_module_main");
+        return;
+    }
+    pos = 0;
+    pos += snprintf(out + pos, out_sz - pos, "__jmpto_");
+    for (const char* p = module_name; *p && pos + 6 < out_sz; p++) {
+        unsigned char c = (unsigned char)*p;
+        if (isalnum(c)) out[pos++] = (char)c;
+        else out[pos++] = '_';
+    }
+    if (pos + 6 >= out_sz) pos = out_sz - 6;
+    memcpy(out + pos, "_main", 6);
+}
+
 static void gen_expr(GenContext* ctx, AstNode* node, int dest) {
     if (!node) return;
     
@@ -73,7 +106,7 @@ static void gen_expr(GenContext* ctx, AstNode* node, int dest) {
             char str_name[256];
             snprintf(str_name, sizeof(str_name), "str_%d", str_idx);
             add_global(ctx, str_name);
-            IRIns* ins = ir_ins_new(IR_GLOBAL);
+            IRIns* ins = ir_ins_new(IR_LOAD_ADDR);
             ins->var_name = platform_strdup(str_name);
             ins->dest = dest;
             ir_emit(ctx->prog, ins);
@@ -169,7 +202,7 @@ static void gen_expr(GenContext* ctx, AstNode* node, int dest) {
                 }
             }
             
-            for (int i = 0; i < arg_count; i++) {
+            for (int i = arg_count - 1; i >= 0; i--) {
                 IRIns* param = ir_ins_new(IR_PARAM);
                 param->src1 = args[i];
                 param->dest = i;
@@ -198,7 +231,7 @@ static void gen_stmt(GenContext* ctx, AstNode* node) {
         case NODE_VARIABLE: {
             char var_name[256];
             snprintf(var_name, sizeof(var_name), "var_%s", node->data.variable.name);
-            add_global(ctx, var_name);
+            add_global_def(ctx, var_name);
             
             if (node->data.variable.value) {
                 int temp = new_temp(ctx);
@@ -374,6 +407,7 @@ static void gen_stmt(GenContext* ctx, AstNode* node) {
         case NODE_JMPTO: {
             int* args = NULL;
             int arg_count = node->data.jmpto.var_count;
+            char entry_name[256];
             
             if (arg_count > 0) {
                 args = platform_malloc(arg_count * sizeof(int));
@@ -384,16 +418,18 @@ static void gen_stmt(GenContext* ctx, AstNode* node) {
                 }
             }
             
-            for (int i = 0; i < arg_count; i++) {
+            for (int i = arg_count - 1; i >= 0; i--) {
                 IRIns* param = ir_ins_new(IR_PARAM);
                 param->src1 = args[i];
                 param->dest = i;
                 ir_emit(ctx->prog, param);
             }
             
-            IRIns* ins = ir_ins_new(IR_MODULE_CALL);
-            ins->module_name = platform_strdup(node->data.jmpto.filename);
+            module_entry_name(node->data.jmpto.filename, entry_name, sizeof(entry_name));
+            IRIns* ins = ir_ins_new(IR_CALL);
+            ins->var_name = platform_strdup(entry_name);
             ins->param_count = arg_count;
+            ins->dest = -1;
             ir_emit(ctx->prog, ins);
             
             if (args) platform_free(args);
@@ -404,6 +440,12 @@ static void gen_stmt(GenContext* ctx, AstNode* node) {
             for (int i = 0; i < node->data.block.count; i++) {
                 gen_stmt(ctx, node->data.block.statements[i]);
             }
+            break;
+        }
+
+        case NODE_CALL: {
+            int tmp = new_temp(ctx);
+            gen_expr(ctx, node, tmp);
             break;
         }
         
@@ -431,7 +473,7 @@ static void gen_function(GenContext* ctx, AstNode* func) {
         if (param->type == NODE_VARIABLE) {
             char var_name[256];
             snprintf(var_name, sizeof(var_name), "var_%s", param->data.variable.name);
-            add_global(ctx, var_name);
+            add_global_def(ctx, var_name);
             
             IRIns* param_ins = ir_ins_new(IR_PARAM);
             param_ins->src1 = i;
@@ -478,7 +520,7 @@ IRProgram* ir_generate(AstNode* ast, int safe_code, int alloc_type) {
         if (item->type == NODE_VARIABLE) {
             char var_name[256];
             snprintf(var_name, sizeof(var_name), "var_%s", item->data.variable.name);
-            add_global(&ctx, var_name);
+            add_global_def(&ctx, var_name);
         } else if (item->type == NODE_SECTION) {
             for (int j = 0; j < item->data.section.var_count; j++) {
                 AstNode* var = item->data.section.variables[j];
@@ -486,7 +528,7 @@ IRProgram* ir_generate(AstNode* ast, int safe_code, int alloc_type) {
                     char var_name[256];
                     snprintf(var_name, sizeof(var_name), "sect_%s_%s", 
                              item->data.section.name, var->data.variable.name);
-                    add_global(&ctx, var_name);
+                    add_global_def(&ctx, var_name);
                 }
             }
         }
@@ -520,11 +562,8 @@ IRProgram* ir_generate(AstNode* ast, int safe_code, int alloc_type) {
     }
     
     // Добавляем IR_GLOBAL для всех переменных
-    for (int i = 0; i < ctx.global_count; i++) {
-        char* name = ctx.globals[i];
-        if (strncmp(name, "str_", 4) == 0) {
-            continue;
-        }
+    for (int i = 0; i < ctx.global_def_count; i++) {
+        char* name = ctx.global_defs[i];
         IRIns* decl = ir_ins_new(IR_GLOBAL);
         decl->var_name = platform_strdup(name);
         decl->dest = -1;
@@ -545,6 +584,18 @@ IRProgram* ir_generate(AstNode* ast, int safe_code, int alloc_type) {
     if (ctx.temps) {
         platform_free(ctx.temps);
     }
+    for (int i = 0; i < ctx.global_count; i++) {
+        platform_free(ctx.globals[i]);
+    }
+    if (ctx.globals) platform_free(ctx.globals);
+    for (int i = 0; i < ctx.global_def_count; i++) {
+        platform_free(ctx.global_defs[i]);
+    }
+    if (ctx.global_defs) platform_free(ctx.global_defs);
+    for (int i = 0; i < ctx.string_count; i++) {
+        platform_free(ctx.strings[i]);
+    }
+    if (ctx.strings) platform_free(ctx.strings);
     
     return ctx.prog;
 }

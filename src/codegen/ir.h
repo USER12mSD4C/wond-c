@@ -39,17 +39,15 @@ typedef struct IRIns {
     IROp op;
     int dest;
     int src1, src2;
-    
-    union {
-        int const_val;
-        char* var_name;
-        char* module_name;
-        char* string_val;
-        struct {
-            char* section;
-            char* var;
-        } section_var;
-    };
+
+    int const_val;
+    char* var_name;
+    char* module_name;
+    char* string_val;
+    struct {
+        char* section;
+        char* var;
+    } section_var;
     
     int label;
     int param_count;

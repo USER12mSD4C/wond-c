@@ -120,7 +120,6 @@ void linear_allocate(LinearRegAlloc* ra, IRProgram* prog) {
                 int reg = ra->reg_map[intervals[active[j]].temp];
                 if (reg >= 0) {
                     ra->reg_used[reg] = 0;
-                    ra->reg_map[intervals[active[j]].temp] = -1;
                 }
                 // сдвигаем
                 for (int k = j; k < active_count - 1; k++) {

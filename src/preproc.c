@@ -15,6 +15,18 @@ static Macro* macros = NULL;
 static int in_if = 0;
 static int skip_mode = 0;
 
+static void clear_macros(void) {
+    Macro* m = macros;
+    while (m) {
+        Macro* next = m->next;
+        free(m->name);
+        free(m->val);
+        free(m);
+        m = next;
+    }
+    macros = NULL;
+}
+
 static void add_macro(const char* name, const char* val) {
     Macro* m = macros;
     while (m) {
@@ -96,37 +108,46 @@ static char* expand_macros(const char* line) {
 PreprocOutput* preprocess(const char* src, const char* fname, void* paths) {
     (void)fname;
     (void)paths;
-    
+
+    clear_macros();
+    in_if = 0;
+    skip_mode = 0;
+
     PreprocOutput* out = malloc(sizeof(PreprocOutput));
     out->out = malloc(strlen(src) + 1);
     out->out[0] = 0;
     out->len = 0;
-    
+
     char* src_copy = strdup(src);
     char* line = src_copy;
     char* next;
-    
-    while ((next = strchr(line, '\n')) != NULL) {
-        *next = 0;
-        
+
+    while (line) {
+        next = strchr(line, '\n');
+        if (next) *next = 0;
+
+        if (*line == '\0' && next == NULL) {
+            break;
+        }
+
         char* trimmed = line;
         while (*trimmed == ' ' || *trimmed == '\t') trimmed++;
-        
+
         if (*trimmed == '#' && !skip_mode) {
             trimmed++;
             while (*trimmed == ' ' || *trimmed == '\t') trimmed++;
-            
+
             if (strncmp(trimmed, "define", 6) == 0 && !is_id_char(trimmed[6])) {
                 trimmed += 6;
                 while (*trimmed == ' ' || *trimmed == '\t') trimmed++;
-                
+
                 const char* name_start = trimmed;
                 while (is_id_char(*trimmed)) trimmed++;
                 int name_len = trimmed - name_start;
                 char* name = malloc(name_len + 1);
                 memcpy(name, name_start, name_len);
                 name[name_len] = 0;
-                
+
                 while (*trimmed == ' ' || *trimmed == '\t') trimmed++;
                 add_macro(name, trimmed);
                 free(name);
@@ -152,7 +173,7 @@ PreprocOutput* preprocess(const char* src, const char* fname, void* paths) {
                 char* name = malloc(name_len + 1);
                 memcpy(name, name_start, name_len);
                 name[name_len] = 0;
-                
+
                 int defined = (find_macro(name) != NULL);
                 if (!defined) skip_mode = 1;
                 in_if++;
@@ -167,7 +188,7 @@ PreprocOutput* preprocess(const char* src, const char* fname, void* paths) {
                 char* name = malloc(name_len + 1);
                 memcpy(name, name_start, name_len);
                 name[name_len] = 0;
-                
+
                 int defined = (find_macro(name) != NULL);
                 if (defined) skip_mode = 1;
                 in_if++;
@@ -193,11 +214,17 @@ PreprocOutput* preprocess(const char* src, const char* fname, void* paths) {
             out->len++;
             free(expanded);
         }
-        
+
+        if (!next) {
+            break;
+        }
         line = next + 1;
     }
-    
+
     free(src_copy);
+    clear_macros();
+    in_if = 0;
+    skip_mode = 0;
     return out;
 }
 
