@@ -1,9 +1,8 @@
 **WandC — UTMS Compiler**
 
+wandC, wondC, whatever
+
 **Copyright (c) 2026 The UOPL Authors**
-
-
-Portable compiler for UTMS language.
 
 == Quick Start ==
 
