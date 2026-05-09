@@ -5,55 +5,75 @@
 
 void ast_free(AstNode* node) {
     if (!node) return;
-    
+
     switch (node->type) {
         case NODE_IMPORT:
             free(node->data.import.module);
             if (node->data.import.func) free(node->data.import.func);
             if (node->data.import.alias) free(node->data.import.alias);
             break;
-            
+
+        case NODE_EXTERN_FUNC:
+            free(node->data.extern_func.name);
+            for (int i = 0; i < node->data.extern_func.param_count; i++)
+                ast_free(node->data.extern_func.params[i]);
+            free(node->data.extern_func.params);
+            break;
+
         case NODE_DIRECTIVE:
             free(node->data.directive.name);
             free(node->data.directive.value);
             break;
-            
+
         case NODE_NUMBER:
             free(node->data.number.value);
             break;
-            
+
         case NODE_STRING:
             free(node->data.string.value);
             break;
-            
+
         case NODE_IDENTIFIER:
             free(node->data.identifier.name);
             break;
-            
+
         case NODE_SECTION_REF:
             free(node->data.section_ref.section);
             free(node->data.section_ref.member);
             break;
-            
+
         case NODE_VARIABLE:
             free(node->data.variable.name);
             ast_free(node->data.variable.value);
             break;
-            
+
+        case NODE_MULTI_VARIABLE:
+            for (int i = 0; i < node->data.multi_variable.name_count; i++)
+                free(node->data.multi_variable.names[i]);
+            free(node->data.multi_variable.names);
+            ast_free(node->data.multi_variable.value);
+            break;
+
         case NODE_ASSIGN:
             free(node->data.assign.name);
             ast_free(node->data.assign.value);
             break;
-            
+
+        case NODE_STORE_DEREF:
+            ast_free(node->data.store_deref.ptr);
+            ast_free(node->data.store_deref.value);
+            if (node->data.store_deref.field) free(node->data.store_deref.field);
+            break;
+
         case NODE_BINARY_OP:
             ast_free(node->data.binary.left);
             ast_free(node->data.binary.right);
             break;
-            
+
         case NODE_UNARY_OP:
             ast_free(node->data.unary.expr);
             break;
-            
+
         case NODE_CALL:
             free(node->data.call.name);
             for (int i = 0; i < node->data.call.arg_count; i++) {
@@ -61,25 +81,25 @@ void ast_free(AstNode* node) {
             }
             free(node->data.call.args);
             break;
-            
+
         case NODE_IF:
             ast_free(node->data.if_stmt.condition);
             ast_free(node->data.if_stmt.then_branch);
             ast_free(node->data.if_stmt.else_branch);
             break;
-            
+
         case NODE_WHILE:
             ast_free(node->data.while_loop.condition);
             ast_free(node->data.while_loop.body);
             break;
-            
+
         case NODE_FOR:
             ast_free(node->data.for_loop.init);
             ast_free(node->data.for_loop.condition);
             ast_free(node->data.for_loop.body);
             ast_free(node->data.for_loop.post);
             break;
-            
+
         case NODE_FUNCTION:
             free(node->data.function.name);
             for (int i = 0; i < node->data.function.param_count; i++) {
@@ -88,21 +108,31 @@ void ast_free(AstNode* node) {
             free(node->data.function.params);
             ast_free(node->data.function.body);
             break;
-            
+
         case NODE_BLOCK:
             for (int i = 0; i < node->data.block.count; i++) {
                 ast_free(node->data.block.statements[i]);
             }
             free(node->data.block.statements);
             break;
-            
+
         case NODE_RETURN:
-            for (int i = 0; i < node->data.return_stmt.count; i++) {
-                ast_free(node->data.return_stmt.values[i]);
-            }
-            free(node->data.return_stmt.values);
+            ast_free(node->data.return_stmt.value);
             break;
-            
+
+        case NODE_MULTI_RETURN:
+            for (int i = 0; i < node->data.multi_return.count; i++)
+                ast_free(node->data.multi_return.values[i]);
+            free(node->data.multi_return.values);
+            break;
+
+        case NODE_DESTRUCTURE:
+            for (int i = 0; i < node->data.destructure.count; i++)
+                free(node->data.destructure.names[i]);
+            free(node->data.destructure.names);
+            ast_free(node->data.destructure.call);
+            break;
+
         case NODE_SECTION:
             free(node->data.section.name);
             for (int i = 0; i < node->data.section.var_count; i++) {
@@ -110,11 +140,11 @@ void ast_free(AstNode* node) {
             }
             free(node->data.section.variables);
             break;
-            
+
         case NODE_ASM_BLOCK:
             free(node->data.asm_block.instructions);
             break;
-            
+
         case NODE_JMPTO:
             free(node->data.jmpto.filename);
             for (int i = 0; i < node->data.jmpto.var_count; i++) {
@@ -123,39 +153,39 @@ void ast_free(AstNode* node) {
             free(node->data.jmpto.vars);
             ast_free(node->data.jmpto.block);
             break;
-            
+
         case NODE_INPUT:
             ast_free(node->data.input.prompt);
             ast_free(node->data.input.target);
             break;
-            
+
         case NODE_MLOC:
             ast_free(node->data.mloc.owner);
             ast_free(node->data.mloc.size);
             ast_free(node->data.mloc.align);
             break;
-            
+
         case NODE_BMLOC:
             ast_free(node->data.bmloc.address);
             ast_free(node->data.bmloc.size);
             break;
-            
+
         case NODE_MFREE:
             ast_free(node->data.mfree.target);
             break;
-            
+
         case NODE_INB:
             ast_free(node->data.inb.port);
             break;
-            
+
         case NODE_OUTB:
             ast_free(node->data.outb.port);
             ast_free(node->data.outb.value);
             break;
-            
+
         case NODE_E820F:
             break;
-            
+
         case NODE_STRUCT:
             free(node->data.struct_def.name);
             for (int i = 0; i < node->data.struct_def.field_count; i++) {
@@ -164,7 +194,7 @@ void ast_free(AstNode* node) {
             }
             free(node->data.struct_def.fields);
             break;
-            
+
         case NODE_ENUM:
             free(node->data.enum_def.name);
             for (int i = 0; i < node->data.enum_def.value_count; i++) {
@@ -173,14 +203,41 @@ void ast_free(AstNode* node) {
             }
             free(node->data.enum_def.values);
             break;
-            
+
+        case NODE_ADR:
+            ast_free(node->data.adr.expr);
+            break;
+
+        case NODE_DEREF:
+            ast_free(node->data.deref.ptr);
+            break;
+
+        case NODE_ARROW:
+            ast_free(node->data.arrow.ptr);
+            free(node->data.arrow.field);
+            break;
+
+        case NODE_NULL:
+            break;
+
+        case NODE_INC:
+            ast_free(node->data.inc.expr);
+            break;
+
+        case NODE_DEC:
+            ast_free(node->data.dec.expr);
+            break;
+
+        case NODE_PTR_FIELD:
+            break;
+
         case NODE_PROGRAM:
             for (int i = 0; i < node->data.program.count; i++) {
                 ast_free(node->data.program.items[i]);
             }
             free(node->data.program.items);
             break;
-            
+
         default:
             break;
     }
@@ -197,6 +254,20 @@ AstNode* ast_create_import(char* module, char* func, char* alias, int line, int 
     node->data.import.module = module;
     node->data.import.func = func;
     node->data.import.alias = alias;
+    return node;
+}
+
+AstNode* ast_create_extern_func(char* name, VarType return_type, AstNode** params, int param_count, int line, int column) {
+    AstNode* node = malloc(sizeof(AstNode));
+    node->type = NODE_EXTERN_FUNC;
+    node->line = line;
+    node->column = column;
+    node->attr_baint = 0;
+    node->attr_bclear = 0;
+    node->data.extern_func.name = name;
+    node->data.extern_func.return_type = return_type;
+    node->data.extern_func.params = params;
+    node->data.extern_func.param_count = param_count;
     return node;
 }
 
@@ -271,6 +342,21 @@ AstNode* ast_create_variable(VarType type, int is_locate, char* name, AstNode* v
     return node;
 }
 
+AstNode* ast_create_multi_variable(VarType type, int is_locate, char** names, int name_count, AstNode* value, int line, int column) {
+    AstNode* node = malloc(sizeof(AstNode));
+    node->type = NODE_MULTI_VARIABLE;
+    node->line = line;
+    node->column = column;
+    node->attr_baint = 0;
+    node->attr_bclear = 0;
+    node->data.multi_variable.var_type = type;
+    node->data.multi_variable.is_locate = is_locate;
+    node->data.multi_variable.names = names;
+    node->data.multi_variable.name_count = name_count;
+    node->data.multi_variable.value = value;
+    return node;
+}
+
 AstNode* ast_create_assign(char* name, AstNode* value, int line, int column) {
     AstNode* node = malloc(sizeof(AstNode));
     node->type = NODE_ASSIGN;
@@ -280,6 +366,20 @@ AstNode* ast_create_assign(char* name, AstNode* value, int line, int column) {
     node->attr_bclear = 0;
     node->data.assign.name = name;
     node->data.assign.value = value;
+    return node;
+}
+
+AstNode* ast_create_store_deref(AstNode* ptr, AstNode* value, int is_arrow, char* field, int line, int column) {
+    AstNode* node = malloc(sizeof(AstNode));
+    node->type = NODE_STORE_DEREF;
+    node->line = line;
+    node->column = column;
+    node->attr_baint = 0;
+    node->attr_bclear = 0;
+    node->data.store_deref.ptr = ptr;
+    node->data.store_deref.value = value;
+    node->data.store_deref.is_arrow = is_arrow;
+    node->data.store_deref.field = field;
     return node;
 }
 
@@ -386,15 +486,39 @@ AstNode* ast_create_block(AstNode** statements, int count, int line, int column)
     return node;
 }
 
-AstNode* ast_create_return(AstNode** values, int count, int line, int column) {
+AstNode* ast_create_return(AstNode* value, int line, int column) {
     AstNode* node = malloc(sizeof(AstNode));
     node->type = NODE_RETURN;
     node->line = line;
     node->column = column;
     node->attr_baint = 0;
     node->attr_bclear = 0;
-    node->data.return_stmt.values = values;
-    node->data.return_stmt.count = count;
+    node->data.return_stmt.value = value;
+    return node;
+}
+
+AstNode* ast_create_multi_return(AstNode** values, int count, int line, int column) {
+    AstNode* node = malloc(sizeof(AstNode));
+    node->type = NODE_MULTI_RETURN;
+    node->line = line;
+    node->column = column;
+    node->attr_baint = 0;
+    node->attr_bclear = 0;
+    node->data.multi_return.values = values;
+    node->data.multi_return.count = count;
+    return node;
+}
+
+AstNode* ast_create_destructure(char** names, int count, AstNode* call, int line, int column) {
+    AstNode* node = malloc(sizeof(AstNode));
+    node->type = NODE_DESTRUCTURE;
+    node->line = line;
+    node->column = column;
+    node->attr_baint = 0;
+    node->attr_bclear = 0;
+    node->data.destructure.names = names;
+    node->data.destructure.count = count;
+    node->data.destructure.call = call;
     return node;
 }
 
@@ -545,16 +669,16 @@ AstNode* ast_create_struct(char* name, int version, int is_reflect, int line, in
     return node;
 }
 
-void ast_struct_add_field(AstNode* struct_node, char* name, VarType type, 
+void ast_struct_add_field(AstNode* struct_node, char* name, VarType type,
                           int version_added, int version_removed, int is_pointer, int array_size) {
     if (!struct_node || struct_node->type != NODE_STRUCT) return;
-    
+
     int count = struct_node->data.struct_def.field_count;
     struct_node->data.struct_def.fields = realloc(
         struct_node->data.struct_def.fields,
         (count + 1) * sizeof(FieldInfo*)
     );
-    
+
     FieldInfo* field = malloc(sizeof(FieldInfo));
     field->name = name;
     field->type = type;
@@ -563,7 +687,7 @@ void ast_struct_add_field(AstNode* struct_node, char* name, VarType type,
     field->offset = 0;
     field->is_pointer = is_pointer;
     field->array_size = array_size;
-    
+
     struct_node->data.struct_def.fields[count] = field;
     struct_node->data.struct_def.field_count++;
 }
@@ -583,26 +707,25 @@ AstNode* ast_create_enum(char* name, int version, int line, int column) {
     return node;
 }
 
-void ast_enum_add_value(AstNode* enum_node, char* name, uint64_t value, 
+void ast_enum_add_value(AstNode* enum_node, char* name, uint64_t value,
                         int version_added, int version_removed) {
     if (!enum_node || enum_node->type != NODE_ENUM) return;
-    
+
     int count = enum_node->data.enum_def.value_count;
     enum_node->data.enum_def.values = realloc(
         enum_node->data.enum_def.values,
         (count + 1) * sizeof(EnumValue*)
     );
-    
+
     EnumValue* val = malloc(sizeof(EnumValue));
     val->name = name;
     val->value = value;
     val->version_added = version_added;
     val->version_removed = version_removed;
-    
+
     enum_node->data.enum_def.values[count] = val;
     enum_node->data.enum_def.value_count++;
-    
-    // Определяем размер enum (наибольшее значение)
+
     if (value > 0xFFFFFFFF) {
         enum_node->data.enum_def.size = 8;
     } else if (value > 0xFFFF) {
@@ -610,4 +733,70 @@ void ast_enum_add_value(AstNode* enum_node, char* name, uint64_t value,
     } else if (value > 0xFF) {
         if (enum_node->data.enum_def.size < 2) enum_node->data.enum_def.size = 2;
     }
+}
+
+AstNode* ast_create_adr(AstNode* expr, int line, int column) {
+    AstNode* node = malloc(sizeof(AstNode));
+    node->type = NODE_ADR;
+    node->line = line;
+    node->column = column;
+    node->attr_baint = 0;
+    node->attr_bclear = 0;
+    node->data.adr.expr = expr;
+    return node;
+}
+
+AstNode* ast_create_deref(AstNode* ptr, int line, int column) {
+    AstNode* node = malloc(sizeof(AstNode));
+    node->type = NODE_DEREF;
+    node->line = line;
+    node->column = column;
+    node->attr_baint = 0;
+    node->attr_bclear = 0;
+    node->data.deref.ptr = ptr;
+    return node;
+}
+
+AstNode* ast_create_arrow(AstNode* ptr, char* field, int line, int column) {
+    AstNode* node = malloc(sizeof(AstNode));
+    node->type = NODE_ARROW;
+    node->line = line;
+    node->column = column;
+    node->attr_baint = 0;
+    node->attr_bclear = 0;
+    node->data.arrow.ptr = ptr;
+    node->data.arrow.field = field;
+    return node;
+}
+
+AstNode* ast_create_null(int line, int column) {
+    AstNode* node = malloc(sizeof(AstNode));
+    node->type = NODE_NULL;
+    node->line = line;
+    node->column = column;
+    node->attr_baint = 0;
+    node->attr_bclear = 0;
+    return node;
+}
+
+AstNode* ast_create_inc(AstNode* expr, int line, int column) {
+    AstNode* node = malloc(sizeof(AstNode));
+    node->type = NODE_INC;
+    node->line = line;
+    node->column = column;
+    node->attr_baint = 0;
+    node->attr_bclear = 0;
+    node->data.inc.expr = expr;
+    return node;
+}
+
+AstNode* ast_create_dec(AstNode* expr, int line, int column) {
+    AstNode* node = malloc(sizeof(AstNode));
+    node->type = NODE_DEC;
+    node->line = line;
+    node->column = column;
+    node->attr_baint = 0;
+    node->attr_bclear = 0;
+    node->data.dec.expr = expr;
+    return node;
 }

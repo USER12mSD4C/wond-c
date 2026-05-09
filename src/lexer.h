@@ -5,14 +5,14 @@
 typedef enum {
     TOK_EOF,
     TOK_ERROR,
-    
+
     TOK_SC_FALSE,
     TOK_SC_TRUE,
-    
+
     TOK_ADRLOAD,
     TOK_BITS,
     TOK_SECTION,
-    
+
     TOK_SECT,
     TOK_EOS,
     TOK_FN,
@@ -35,25 +35,25 @@ typedef enum {
     TOK_OUTW,
     TOK_INL,
     TOK_OUTL,
-    
+
     TOK_IMPORT,
     TOK_FROM,
     TOK_AS,
-    
+
     TOK_BAINT,
     TOK_BCLEAR,
-    
+
     TOK_NASM_BLOCK,
-    
+
     TOK_U8, TOK_U16, TOK_U32, TOK_U64,
     TOK_I8, TOK_I16, TOK_I32, TOK_I64,
     TOK_STRING_TYPE,
     TOK_LOCATE,
-    
+
     TOK_IDENTIFIER,
     TOK_NUMBER,
     TOK_STRING,
-    
+
     TOK_SEMICOLON,
     TOK_LBRACE,
     TOK_RBRACE,
@@ -77,7 +77,7 @@ typedef enum {
     TOK_AND,
     TOK_OR,
     TOK_NOT,
-    
+
     TOK_STRUCT,
     TOK_ENUM,
     TOK_VERSION,
@@ -85,7 +85,16 @@ typedef enum {
     TOK_LBRACKET,
     TOK_RBRACKET,
     TOK_EXPORT,
-    TOK_MODULE
+    TOK_MODULE,
+
+    TOK_PTR_READ,
+    TOK_PTR_WRITE,
+    TOK_ADR,
+    TOK_ARROW,
+    TOK_NULL,
+    TOK_EXTERN,
+    TOK_INC,
+    TOK_DEC,
 } TokenType;
 
 typedef struct {

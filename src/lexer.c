@@ -77,30 +77,30 @@ Token lexer_next_token(Lexer* lexer) {
     int start_pos = lexer->position;
     int c = lexer_current(lexer);
     if (c == -1) return lexer_make_token(lexer, TOK_EOF, NULL, 0);
-    
-    if (c == 's' && lexer->source[lexer->position + 1] == 'c' && 
+
+    if (c == 's' && lexer->source[lexer->position + 1] == 'c' &&
         lexer->source[lexer->position + 2] == '.') {
-        
+
         lexer_advance(lexer);
         lexer_advance(lexer);
         lexer_advance(lexer);
-        
+
         int start = lexer->position;
         while (isalpha(lexer_current(lexer))) {
             lexer_advance(lexer);
         }
         int len = lexer->position - start;
-        
+
         if (len == 5 && strncmp(lexer->source + start, "false", 5) == 0) {
             return lexer_make_token(lexer, TOK_SC_FALSE, "sc.false", 8);
         }
         if (len == 4 && strncmp(lexer->source + start, "true", 4) == 0) {
             return lexer_make_token(lexer, TOK_SC_TRUE, "sc.true", 7);
         }
-        
+
         lexer->position = start_pos;
     }
-    
+
     if (c == '#') {
         lexer_advance(lexer);
         int start = lexer->position;
@@ -108,14 +108,17 @@ Token lexer_next_token(Lexer* lexer) {
             lexer_advance(lexer);
         }
         int len = lexer->position - start;
-        
+
         if (len == 6 && strncmp(lexer->source + start, "import", 6) == 0) {
             return lexer_make_token(lexer, TOK_IMPORT, "#import", 7);
         }
-        
+        if (len == 6 && strncmp(lexer->source + start, "extern", 6) == 0) {
+            return lexer_make_token(lexer, TOK_EXTERN, "#extern", 7);
+        }
+
         lexer->position = start_pos;
     }
-    
+
     if (isdigit(c) || (c == '0' && (lexer->source[lexer->position + 1] == 'x' || lexer->source[lexer->position + 1] == 'X'))) {
         if (c == '0' && (lexer->source[lexer->position + 1] == 'x' || lexer->source[lexer->position + 1] == 'X')) {
             lexer_advance(lexer);
@@ -143,31 +146,28 @@ Token lexer_next_token(Lexer* lexer) {
             return lexer_make_token(lexer, TOK_NUMBER, lexer->source + start_pos, num_len);
         }
     }
-    
+
     if (c == '"') {
         lexer_advance(lexer);
         char* buf = malloc(4096);
         int pos = 0;
         int escape = 0;
-        
+
         while (1) {
             int ch = lexer_current(lexer);
             if (ch == -1) {
                 free(buf);
                 return lexer_error(lexer, "unterminated string");
             }
-            
             if (!escape && ch == '"') {
                 lexer_advance(lexer);
                 break;
             }
-            
             if (!escape && ch == '\\') {
                 escape = 1;
                 lexer_advance(lexer);
                 continue;
             }
-            
             if (escape) {
                 switch (ch) {
                     case 'n':  buf[pos++] = '\n'; break;
@@ -189,45 +189,43 @@ Token lexer_next_token(Lexer* lexer) {
                 lexer_advance(lexer);
             }
         }
-        
         buf[pos] = '\0';
         Token tok = lexer_make_token(lexer, TOK_STRING, buf, pos);
         free(buf);
         return tok;
     }
-    
+
     if (c == ':' && strncmp(lexer->source + start_pos, "::nasm::{", 9) == 0) {
         lexer->position += 9;
         lexer->column += 9;
-        
+
         int content_start = lexer->position;
         int brace_count = 1;
-        
+
         while (brace_count > 0 && lexer_current(lexer) != -1) {
             if (lexer_current(lexer) == '{') brace_count++;
             if (lexer_current(lexer) == '}') brace_count--;
             lexer_advance(lexer);
         }
-        
+
         int content_len = lexer->position - content_start - 1;
         char* content = malloc(content_len + 1);
         if (content) {
             memcpy(content, lexer->source + content_start, content_len);
             content[content_len] = '\0';
         }
-        
         Token tok = lexer_make_token(lexer, TOK_NASM_BLOCK, content ? content : "", content_len);
         free(content);
         return tok;
     }
-    
+
     if (isalpha(c) || c == '_') {
         while (isalnum(lexer_current(lexer)) || lexer_current(lexer) == '_') {
             lexer_advance(lexer);
         }
         int len = lexer->position - start_pos;
         const char* text = lexer->source + start_pos;
-        
+
         if (len == 7 && memcmp(text, "adrload", 7) == 0) return lexer_make_token(lexer, TOK_ADRLOAD, "adrload", 7);
         if (len == 4 && memcmp(text, "bits", 4) == 0) return lexer_make_token(lexer, TOK_BITS, "bits", 4);
         if (len == 4 && memcmp(text, "sect", 4) == 0) return lexer_make_token(lexer, TOK_SECT, "sect", 4);
@@ -267,10 +265,30 @@ Token lexer_next_token(Lexer* lexer) {
         if (len == 6 && memcmp(text, "string", 6) == 0) return lexer_make_token(lexer, TOK_STRING_TYPE, "string", 6);
         if (len == 6 && memcmp(text, "locate", 6) == 0) return lexer_make_token(lexer, TOK_LOCATE, "locate", 6);
         if (len == 6 && memcmp(text, "struct", 6) == 0) return lexer_make_token(lexer, TOK_STRUCT, "struct", 6);
-        
+        if (len == 4 && memcmp(text, "null", 4) == 0) return lexer_make_token(lexer, TOK_NULL, "null", 4);
+        if (len == 6 && memcmp(text, "extern", 6) == 0) return lexer_make_token(lexer, TOK_EXTERN, "extern", 6);
+
         return lexer_make_token(lexer, TOK_IDENTIFIER, text, len);
     }
-    
+
+    if (c == '-' && lexer->source[lexer->position + 1] == '>') {
+        lexer_advance(lexer);
+        lexer_advance(lexer);
+        return lexer_make_token(lexer, TOK_ARROW, "->", 2);
+    }
+
+    if (c == '+' && lexer->source[lexer->position + 1] == '+') {
+        lexer_advance(lexer);
+        lexer_advance(lexer);
+        return lexer_make_token(lexer, TOK_INC, "++", 2);
+    }
+
+    if (c == '-' && lexer->source[lexer->position + 1] == '-') {
+        lexer_advance(lexer);
+        lexer_advance(lexer);
+        return lexer_make_token(lexer, TOK_DEC, "--", 2);
+    }
+
     if (c == ';') { lexer_advance(lexer); return lexer_make_token(lexer, TOK_SEMICOLON, ";", 1); }
     if (c == '{') { lexer_advance(lexer); return lexer_make_token(lexer, TOK_LBRACE, "{", 1); }
     if (c == '}') { lexer_advance(lexer); return lexer_make_token(lexer, TOK_RBRACE, "}", 1); }
@@ -286,7 +304,7 @@ Token lexer_next_token(Lexer* lexer) {
     if (c == '%') { lexer_advance(lexer); return lexer_make_token(lexer, TOK_PERCENT, "%", 1); }
     if (c == '[') { lexer_advance(lexer); return lexer_make_token(lexer, TOK_LBRACKET, "[", 1); }
     if (c == ']') { lexer_advance(lexer); return lexer_make_token(lexer, TOK_RBRACKET, "]", 1); }
-    
+
     if (c == '=') {
         if (lexer->source[lexer->position + 1] == '=') {
             lexer_advance(lexer);
@@ -296,7 +314,7 @@ Token lexer_next_token(Lexer* lexer) {
         lexer_advance(lexer);
         return lexer_make_token(lexer, TOK_EQUALS, "=", 1);
     }
-    
+
     if (c == '!') {
         if (lexer->source[lexer->position + 1] == '=') {
             lexer_advance(lexer);
@@ -306,7 +324,7 @@ Token lexer_next_token(Lexer* lexer) {
         lexer_advance(lexer);
         return lexer_make_token(lexer, TOK_NOT, "!", 1);
     }
-    
+
     if (c == '<') {
         if (lexer->source[lexer->position + 1] == '=') {
             lexer_advance(lexer);
@@ -316,7 +334,7 @@ Token lexer_next_token(Lexer* lexer) {
         lexer_advance(lexer);
         return lexer_make_token(lexer, TOK_LT, "<", 1);
     }
-    
+
     if (c == '>') {
         if (lexer->source[lexer->position + 1] == '=') {
             lexer_advance(lexer);
@@ -326,19 +344,19 @@ Token lexer_next_token(Lexer* lexer) {
         lexer_advance(lexer);
         return lexer_make_token(lexer, TOK_GT, ">", 1);
     }
-    
+
     if (c == '&' && lexer->source[lexer->position + 1] == '&') {
         lexer_advance(lexer);
         lexer_advance(lexer);
         return lexer_make_token(lexer, TOK_AND, "&&", 2);
     }
-    
+
     if (c == '|' && lexer->source[lexer->position + 1] == '|') {
         lexer_advance(lexer);
         lexer_advance(lexer);
         return lexer_make_token(lexer, TOK_OR, "||", 2);
     }
-    
+
     lexer_advance(lexer);
     char msg[2] = { (char)c, '\0' };
     return lexer_error(lexer, msg);
